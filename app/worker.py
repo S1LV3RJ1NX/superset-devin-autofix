@@ -195,36 +195,75 @@ class JobWorker:
             )
             return
 
+        timeout_started_at = job.session_requested_at or job.session_created_at or job.started_at
         try:
-            session, messages = await asyncio.gather(
-                self.devin_client.get_session(job.devin_id),
-                self.devin_client.list_messages(job.devin_id),
-            )
-            fields: dict[str, object] = {"error": None}
-            if session.structured_output is not None:
-                fields["structured_output"] = session.structured_output
-            if session.pr_url and not job.pr_url:
-                fields["pr_url"] = session.pr_url
-                fields["pr_created_at"] = utc_now()
+            session = await self.devin_client.get_session(job.devin_id)
+        except Exception as exc:
+            logger.exception("failed to poll Devin session status for job_id=%s", job.id)
+            error = f"Devin session status polling failed: {_safe_error(exc)}"
+            if self._has_timed_out(timeout_started_at):
+                await self._terminate_unobservable_session(job, error)
+            else:
+                self.repository.update_runtime(job.id, {"error": error})
+            return
+
+        fields: dict[str, object] = {"error": None}
+        if session.structured_output is not None:
+            fields["structured_output"] = session.structured_output
+        if session.pr_url and not job.pr_url:
+            fields["pr_url"] = session.pr_url
+            fields["pr_created_at"] = utc_now()
+
+        message_error: str | None = None
+        try:
+            messages = await self.devin_client.list_messages(job.devin_id)
             devin_messages = [message.message for message in messages if message.source == "devin"]
             if devin_messages:
                 fields["last_message"] = devin_messages[-1]
-            if fields:
-                job = self.repository.update_runtime(job.id, fields)
-            if self._apply_session_state(job, session):
-                return
         except Exception as exc:
-            logger.exception("failed to poll Devin session for job_id=%s", job.id)
-            self.repository.update_runtime(
+            logger.exception("failed to poll Devin session messages for job_id=%s", job.id)
+            message_error = f"Devin session message polling failed: {_safe_error(exc)}"
+
+        job = self.repository.update_runtime(job.id, fields)
+        if self._apply_session_state(job, session):
+            return
+        if message_error is not None:
+            job = self.repository.update_runtime(job.id, {"error": message_error})
+
+        if self._has_timed_out(timeout_started_at):
+            await self._terminate_timed_out_session(job)
+
+    async def _terminate_unobservable_session(self, job: Job, polling_error: str) -> None:
+        if not job.devin_id:
+            self.repository.transition(
                 job.id,
-                {"error": f"Devin session polling failed: {_safe_error(exc)}"},
+                JobStatus.FAILED,
+                {"error": "unobservable timed-out job has no Devin session ID"},
             )
             return
-
-        if self._has_timed_out(
-            job.session_requested_at or job.session_created_at or job.started_at
-        ):
-            await self._terminate_timed_out_session(job)
+        try:
+            await self.devin_client.terminate_session(job.devin_id)
+        except Exception as exc:
+            logger.exception("failed to terminate unobservable Devin session job_id=%s", job.id)
+            self.repository.update_runtime(
+                job.id,
+                {
+                    "error": (
+                        f"{polling_error}; Devin session termination failed: {_safe_error(exc)}"
+                    )
+                },
+            )
+            return
+        self.repository.transition(
+            job.id,
+            JobStatus.NEEDS_HUMAN_INPUT,
+            {
+                "error": (
+                    f"{polling_error}; the overdue session was terminated before "
+                    "its final state could be observed"
+                )
+            },
+        )
 
     async def _terminate_timed_out_session(self, job: Job) -> None:
         if not job.devin_id:

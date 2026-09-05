@@ -178,7 +178,10 @@ than trusting API result order. The timeout is measured from the original
 session request, including reconciliation delays. When it expires, the worker
 first observes the latest remote state so completion output and PR metadata are
 preserved, then terminates only a still-active session before marking the job
-timed out. No test calls the real Devin API.
+timed out. Message-polling failures do not discard an observed session state.
+If an overdue session's status cannot be read, the worker terminates it and
+records `needs_human_input` instead of guessing its result. No test calls the
+real Devin API.
 
 ## Validation
 

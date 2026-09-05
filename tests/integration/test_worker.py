@@ -234,6 +234,27 @@ class TransientPollingFailureDevinClient(SuccessfulDevinClient):
         return await super().get_session(devin_id)
 
 
+class FailingMessageDevinClient(SuccessfulDevinClient):
+    """Fake whose session is observable while message polling fails."""
+
+    async def list_messages(self, devin_id: str) -> list[DevinMessage]:
+        raise RuntimeError("messages unavailable")
+
+
+class FailingMessageActiveSessionDevinClient(ActiveSessionDevinClient):
+    """Fake whose active session is observable while message polling fails."""
+
+    async def list_messages(self, devin_id: str) -> list[DevinMessage]:
+        raise RuntimeError("messages unavailable")
+
+
+class FailingStatusDevinClient(SuccessfulDevinClient):
+    """Fake whose session status cannot be observed."""
+
+    async def get_session(self, devin_id: str) -> DevinSession:
+        raise RuntimeError("status unavailable")
+
+
 class FailingReconciliationDevinClient(ReconciliationOnlyDevinClient):
     """Fake whose tracking-tag lookup remains unavailable."""
 
@@ -493,7 +514,7 @@ def test_polling_failure_keeps_session_active_for_retry(
     retryable = repository.get(job.id)
     assert retryable is not None
     assert retryable.status is JobStatus.RUNNING
-    assert retryable.error == "Devin session polling failed: poll unavailable"
+    assert retryable.error == "Devin session status polling failed: poll unavailable"
 
     asyncio.run(worker.run_once())
 
@@ -502,6 +523,133 @@ def test_polling_failure_keeps_session_active_for_retry(
     assert completed.status is JobStatus.SUCCEEDED
     assert devin_client.session_reads == 2
     assert devin_client.terminated_sessions == []
+
+
+def test_overdue_active_session_terminates_when_message_polling_fails(
+    settings: Settings,
+    repository: JobRepository,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job, _ = repository.create_or_get(
+        delivery_id="overdue-message-failure",
+        issue_number=90,
+        issue_title="Enforce timeout without messages",
+        issue_body="Body",
+        issue_url="https://github.com/S1LV3RJ1NX/superset/issues/90",
+        repository="S1LV3RJ1NX/superset",
+        simulated=False,
+    )
+    repository.transition(job.id, JobStatus.QUEUED)
+    repository.update_runtime(
+        job.id,
+        {
+            "session_requested_at": (
+                utc_now() - timedelta(seconds=settings.session_timeout_seconds + 1)
+            )
+        },
+    )
+    repository.transition(
+        job.id,
+        JobStatus.SESSION_CREATED,
+        {
+            "devin_id": "devin-worker",
+            "devin_url": "https://app.devin.ai/sessions/worker",
+        },
+    )
+    repository.transition(job.id, JobStatus.RUNNING)
+    monkeypatch.setattr(worker_module, "utc_now", utc_now)
+    devin_client = FailingMessageActiveSessionDevinClient()
+    worker = JobWorker(settings, repository, devin_client)
+
+    asyncio.run(worker.run_once())
+
+    timed_out = repository.get(job.id)
+    assert timed_out is not None
+    assert timed_out.status is JobStatus.TIMED_OUT
+    assert devin_client.terminated_sessions == ["devin-worker"]
+
+
+def test_completed_session_succeeds_when_message_polling_fails(
+    settings: Settings,
+    repository: JobRepository,
+) -> None:
+    job, _ = repository.create_or_get(
+        delivery_id="completed-message-failure",
+        issue_number=90,
+        issue_title="Preserve completion without messages",
+        issue_body="Body",
+        issue_url="https://github.com/S1LV3RJ1NX/superset/issues/90",
+        repository="S1LV3RJ1NX/superset",
+        simulated=False,
+    )
+    repository.transition(job.id, JobStatus.QUEUED)
+    repository.transition(
+        job.id,
+        JobStatus.SESSION_CREATED,
+        {
+            "devin_id": "devin-worker",
+            "devin_url": "https://app.devin.ai/sessions/worker",
+        },
+    )
+    repository.transition(job.id, JobStatus.RUNNING)
+    devin_client = FailingMessageDevinClient()
+    worker = JobWorker(settings, repository, devin_client)
+
+    asyncio.run(worker.run_once())
+
+    completed = repository.get(job.id)
+    assert completed is not None
+    assert completed.status is JobStatus.SUCCEEDED
+    assert completed.pr_url == "https://github.com/S1LV3RJ1NX/superset/pull/88"
+    assert completed.structured_output is not None
+    assert devin_client.terminated_sessions == []
+
+
+def test_overdue_unobservable_session_is_terminated_as_unknown(
+    settings: Settings,
+    repository: JobRepository,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job, _ = repository.create_or_get(
+        delivery_id="overdue-status-failure",
+        issue_number=90,
+        issue_title="Stop unobservable overdue session",
+        issue_body="Body",
+        issue_url="https://github.com/S1LV3RJ1NX/superset/issues/90",
+        repository="S1LV3RJ1NX/superset",
+        simulated=False,
+    )
+    repository.transition(job.id, JobStatus.QUEUED)
+    repository.update_runtime(
+        job.id,
+        {
+            "session_requested_at": (
+                utc_now() - timedelta(seconds=settings.session_timeout_seconds + 1)
+            )
+        },
+    )
+    repository.transition(
+        job.id,
+        JobStatus.SESSION_CREATED,
+        {
+            "devin_id": "devin-worker",
+            "devin_url": "https://app.devin.ai/sessions/worker",
+        },
+    )
+    repository.transition(job.id, JobStatus.RUNNING)
+    monkeypatch.setattr(worker_module, "utc_now", utc_now)
+    devin_client = FailingStatusDevinClient()
+    worker = JobWorker(settings, repository, devin_client)
+
+    asyncio.run(worker.run_once())
+
+    unresolved = repository.get(job.id)
+    assert unresolved is not None
+    assert unresolved.status is JobStatus.NEEDS_HUMAN_INPUT
+    assert unresolved.error is not None
+    assert "status unavailable" in unresolved.error
+    assert "terminated" in unresolved.error
+    assert devin_client.terminated_sessions == ["devin-worker"]
 
 
 def test_reconciled_session_timeout_uses_original_request_time(

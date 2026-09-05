@@ -198,6 +198,9 @@ completed during a polling gap from becoming false timeouts.
 with an error and are retried on later worker cycles. The timeout remains
 anchored to the original session request across reconciliation delays, and an
 unknown creation outcome becomes `needs_human_input` when that deadline expires.
+Session status is applied independently of message retrieval. An overdue
+session with unreadable status is terminated and marked `needs_human_input`
+rather than reported as a known timeout or left running without observation.
 Per-job failures are logged and do not block unrelated jobs, while broad
 repository-read failures defer the cycle without killing the long-running
 worker.

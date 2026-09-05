@@ -50,6 +50,11 @@ reconciliation. An unreconciled request becomes `needs_human_input` after the
 configured timeout, including when repeated lookup failures leave the creation
 outcome unknown.
 
+Session status and messages are polled independently. Status remains
+authoritative when message retrieval fails. An overdue session whose status
+cannot be observed is terminated and marked `needs_human_input`, avoiding both
+unbounded external work and a fabricated completion result.
+
 ## Trust boundaries
 
 - GitHub input, including `X-GitHub-Delivery`, is untrusted until its raw body

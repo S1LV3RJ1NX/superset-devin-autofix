@@ -48,6 +48,8 @@ make test-unit
   polling gap.
 - Retryable polling failures and enforcement of the original request deadline
   across delayed or failing reconciliation.
+- Terminal-state and timeout handling when message polling fails, plus safe
+  termination of overdue sessions whose status cannot be observed.
 - The complete webhook-to-worker-to-jobs/metrics path.
 
 Run with:
