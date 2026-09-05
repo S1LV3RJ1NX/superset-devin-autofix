@@ -7,6 +7,15 @@ A small, Dockerized FastAPI service that turns an authenticated GitHub
 The service creates and observes Devin sessions. It has no merge endpoint and
 never merges or auto-merges pull requests.
 
+## Documentation
+
+- [Architecture and data flow](docs/architecture.md)
+- [Application modules](docs/modules.md)
+- [Development with Python 3.13 and uv](docs/development.md)
+- [Testing strategy](docs/testing.md)
+- [Operations](docs/operations.md)
+- [Decision log](decisions.md)
+
 ## Architecture
 
 ```text
@@ -78,12 +87,15 @@ not used by this version.
 docker compose up --build
 ```
 
-### Local Python
+### Local development
 
-Python 3.11 is required.
+Python 3.13 and [uv](https://docs.astral.sh/uv/) are required. The committed
+`.python-version` and `uv.lock` keep the interpreter and dependencies
+reproducible.
 
 ```bash
 make install
+make hooks
 make run
 ```
 
@@ -147,9 +159,16 @@ No test calls the real Devin API.
 
 ```bash
 make check
+make test-unit
+make test-integration
 docker build -t superset-devin-autofix .
-docker compose config
+docker compose config -q
 ```
+
+`make check` runs the full pre-push pre-commit stage: lockfile validation,
+repository hygiene, Ruff lint/format, mypy, unit tests, and integration tests.
+Tests use temporary SQLite databases and deterministic HTTP/session fakes; no
+test calls the real Devin API.
 
 ## Version 1 limitations
 

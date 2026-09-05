@@ -1,4 +1,4 @@
-"""Mocked tests for the Devin v3 API client."""
+"""Unit tests for the Devin v3 API client with mocked HTTP."""
 
 from __future__ import annotations
 

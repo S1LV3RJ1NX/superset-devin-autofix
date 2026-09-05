@@ -1,22 +1,35 @@
-.PHONY: install test lint typecheck check run docker-build up down
+.PHONY: install lock test test-unit test-integration lint typecheck check hooks run docker-build up down
 
 install:
-	python -m pip install -e ".[dev]"
+	uv sync --all-groups --frozen
+
+lock:
+	uv lock
 
 test:
-	pytest -q
+	uv run pytest -q
+
+test-unit:
+	uv run pytest -q tests/unit
+
+test-integration:
+	uv run pytest -q tests/integration
 
 lint:
-	ruff check .
-	ruff format --check .
+	uv run ruff check .
+	uv run ruff format --check .
 
 typecheck:
-	mypy app
+	uv run mypy app
 
-check: lint typecheck test
+check:
+	uv run pre-commit run --hook-stage pre-push --all-files
+
+hooks:
+	uv run pre-commit install --install-hooks
 
 run:
-	uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+	uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 docker-build:
 	docker build -t superset-devin-autofix .

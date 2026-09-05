@@ -1,4 +1,4 @@
-"""Orchestration worker tests."""
+"""SQLite-backed orchestration worker integration tests."""
 
 from __future__ import annotations
 

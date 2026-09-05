@@ -1,4 +1,4 @@
-"""Job state machine and metrics tests."""
+"""SQLite job state machine and metrics integration tests."""
 
 from __future__ import annotations
 
