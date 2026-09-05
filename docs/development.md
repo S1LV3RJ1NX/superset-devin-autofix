@@ -18,6 +18,14 @@ make hooks
 dependencies with uv, regenerate the lockfile with `uv lock`, and commit both
 `pyproject.toml` and `uv.lock`.
 
+```bash
+uv add "package==version"
+uv add --dev "package==version"
+uv remove package
+```
+
+Do not edit dependency arrays or `uv.lock` by hand.
+
 ## Common commands
 
 ```bash

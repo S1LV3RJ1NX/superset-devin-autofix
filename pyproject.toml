@@ -9,18 +9,18 @@ description = "Event-driven Devin remediation control plane"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 dependencies = [
-  "fastapi==0.116.1",
-  "httpx==0.28.1",
-  "pydantic==2.11.7",
-  "uvicorn[standard]==0.35.0",
+    "fastapi==0.116.1",
+    "httpx==0.28.1",
+    "pydantic==2.11.7",
+    "uvicorn[standard]==0.35.0",
 ]
 
 [dependency-groups]
 dev = [
-  "mypy==1.17.1",
-  "pre-commit==4.2.0",
-  "pytest==8.4.1",
-  "ruff==0.12.8",
+    "mypy==1.17.1",
+    "pre-commit==4.2.0",
+    "pytest==8.4.1",
+    "ruff==0.12.8",
 ]
 
 [tool.hatch.build.targets.wheel]
