@@ -38,7 +38,12 @@ class DevinSession(BaseModel):
     @property
     def pr_url(self) -> str | None:
         """Return the first PR URL reported by Devin."""
-        return self.pull_requests[0].pr_url if self.pull_requests else None
+        if self.pull_requests:
+            return self.pull_requests[0].pr_url
+        if self.structured_output is None:
+            return None
+        structured_pr_url = self.structured_output.get("pr_url")
+        return structured_pr_url if isinstance(structured_pr_url, str) else None
 
 
 class DevinMessage(BaseModel):

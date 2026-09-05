@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from app.database import InvalidTransitionError, JobRepository
-from app.models import JobStatus, utc_now
+from app.models import Job, JobStatus, utc_now
 
 
 def _create_job(repository: JobRepository, delivery_id: str = "delivery") -> str:
@@ -115,6 +115,31 @@ def test_pr_metrics_include_every_observed_pr_regardless_of_outcome(
 
     assert metrics["tasks_with_pr"] == 2
     assert isinstance(metrics["average_elapsed_seconds_to_pr"], float)
+
+
+def test_metrics_use_one_job_snapshot(
+    repository: JobRepository,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_list_jobs = repository.list_jobs
+    inserted = False
+
+    def list_jobs_with_concurrent_insert(
+        *,
+        include_simulated: bool = True,
+    ) -> list[Job]:
+        nonlocal inserted
+        jobs = original_list_jobs(include_simulated=include_simulated)
+        if not inserted:
+            inserted = True
+            _create_job(repository, "concurrent-production")
+        return jobs
+
+    monkeypatch.setattr(repository, "list_jobs", list_jobs_with_concurrent_insert)
+
+    metrics = repository.metrics()
+
+    assert metrics["simulated_tasks"] == 0
 
 
 def test_initialize_migrates_session_request_timestamp(tmp_path: Path) -> None:

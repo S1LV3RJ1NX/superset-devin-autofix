@@ -129,6 +129,25 @@ class UnexpectedCompletionDevinClient(SuccessfulDevinClient):
         return []
 
 
+class StructuredPullRequestDevinClient(SuccessfulDevinClient):
+    """Fake that reports its PR only through structured completion output."""
+
+    async def get_session(self, devin_id: str) -> DevinSession:
+        return DevinSession(
+            session_id=devin_id,
+            status="exit",
+            status_detail="finished",
+            url="https://app.devin.ai/sessions/structured-pr",
+            structured_output={
+                "status": "succeeded",
+                "summary": "Fixed",
+                "validation": ["pytest"],
+                "limitations": [],
+                "pr_url": "https://github.com/S1LV3RJ1NX/superset/pull/91",
+            },
+        )
+
+
 class ReconciliationOnlyDevinClient(SuccessfulDevinClient):
     """Fake that fails if the worker attempts a second paid create call."""
 
@@ -157,6 +176,31 @@ def test_worker_advances_job_to_success(settings: Settings, repository: JobRepos
     assert completed.devin_id == "devin-worker"
     assert completed.pr_url == "https://github.com/S1LV3RJ1NX/superset/pull/88"
     assert completed.last_message == "Opened the pull request."
+
+
+def test_worker_records_pr_reported_only_in_structured_output(
+    settings: Settings,
+    repository: JobRepository,
+) -> None:
+    job, _ = repository.create_or_get(
+        delivery_id="structured-pr",
+        issue_number=91,
+        issue_title="Record structured PR",
+        issue_body="Body",
+        issue_url="https://github.com/S1LV3RJ1NX/superset/issues/91",
+        repository="S1LV3RJ1NX/superset",
+        simulated=False,
+    )
+    repository.transition(job.id, JobStatus.QUEUED)
+    worker = JobWorker(settings, repository, StructuredPullRequestDevinClient())
+
+    asyncio.run(worker.run_once())
+
+    completed = repository.get(job.id)
+    assert completed is not None
+    assert completed.status is JobStatus.SUCCEEDED
+    assert completed.pr_url == "https://github.com/S1LV3RJ1NX/superset/pull/91"
+    assert repository.metrics()["tasks_with_pr"] == 1
 
 
 def test_worker_recovers_received_job(

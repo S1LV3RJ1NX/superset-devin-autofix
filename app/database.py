@@ -320,7 +320,8 @@ class JobRepository:
 
     def metrics(self) -> dict[str, object]:
         """Calculate production job metrics, excluding simulations."""
-        jobs = self.list_jobs(include_simulated=False)
+        all_jobs = self.list_jobs()
+        jobs = [job for job in all_jobs if not job.simulated]
         terminal_counts = {
             status.value: sum(job.status is status for job in jobs) for status in TERMINAL_STATUSES
         }
@@ -328,7 +329,7 @@ class JobRepository:
         terminal_tasks = sum(terminal_counts.values())
         completed_tasks = terminal_counts[JobStatus.SUCCEEDED.value]
         elapsed = [value for job in jobs if (value := job.elapsed_seconds_to_pr) is not None]
-        simulated_tasks = len(self.list_jobs()) - len(jobs)
+        simulated_tasks = len(all_jobs) - len(jobs)
         return {
             "tasks_started": len(jobs),
             "active_tasks": active_tasks,
