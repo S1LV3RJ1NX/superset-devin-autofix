@@ -40,7 +40,14 @@ ACTIVE_STATUSES = frozenset(
 
 ALLOWED_TRANSITIONS: dict[JobStatus, frozenset[JobStatus]] = {
     JobStatus.RECEIVED: frozenset({JobStatus.QUEUED, JobStatus.FAILED}),
-    JobStatus.QUEUED: frozenset({JobStatus.SESSION_CREATED, JobStatus.FAILED, JobStatus.TIMED_OUT}),
+    JobStatus.QUEUED: frozenset(
+        {
+            JobStatus.SESSION_CREATED,
+            JobStatus.FAILED,
+            JobStatus.TIMED_OUT,
+            JobStatus.NEEDS_HUMAN_INPUT,
+        }
+    ),
     JobStatus.SESSION_CREATED: frozenset(
         {
             JobStatus.RUNNING,
@@ -78,6 +85,7 @@ class Job:
     received_at: datetime
     updated_at: datetime
     queued_at: datetime | None = None
+    session_requested_at: datetime | None = None
     session_created_at: datetime | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
@@ -111,6 +119,9 @@ class Job:
             "received_at": self.received_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "queued_at": self.queued_at.isoformat() if self.queued_at else None,
+            "session_requested_at": (
+                self.session_requested_at.isoformat() if self.session_requested_at else None
+            ),
             "session_created_at": (
                 self.session_created_at.isoformat() if self.session_created_at else None
             ),

@@ -16,7 +16,8 @@ repository and API.
 
 Owns the SQLite schema and all persistence. `JobRepository` initializes the
 database, enforces delivery-ID uniqueness and legal transitions, stores runtime
-session fields, lists worker candidates, and calculates metrics.
+session fields, atomically inserts queued webhook jobs, migrates compatible
+schema additions, lists worker candidates, and calculates metrics.
 
 ## `app.github`
 
@@ -28,21 +29,23 @@ label and repository.
 
 Coordinates webhook intake. `JobService` authenticates first, requires a
 delivery ID, filters the event, inserts or retrieves the durable job, and
-queues newly created work. Simulation uses this same path with a separate
-delivery-ID namespace.
+atomically queues newly created work. Simulation uses this same path with a
+separate delivery-ID namespace.
 
 ## `app.devin`
 
 Contains typed Devin v3 session/message models, prompt construction, the
 structured completion schema, and the asynchronous Organization Sessions API
 client. The client supports session creation, status polling, cursor-paginated
-messages, and safe error translation.
+messages, tracking-tag reconciliation, and safe error translation.
 
 ## `app.worker`
 
 Advances real jobs through session creation and polling. It persists Devin
-session metadata, messages, structured output, and PR URLs; maps remote states
-to terminal job states; and enforces the configured timeout.
+session request intent before the external call, reconciles uncertain outcomes
+without duplicate creates, recovers received jobs, persists session metadata,
+messages, structured output, and PR URLs, maps remote states to terminal job
+states, and enforces the configured timeout.
 
 ## `app.main`
 

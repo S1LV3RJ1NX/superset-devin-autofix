@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.database import JobRepository
 from app.github import sign_payload
 from app.main import create_app
+from app.models import Job, JobStatus
 
 
 def _post_webhook(
@@ -47,6 +50,31 @@ def test_valid_hmac_creates_queued_job(
     assert data["duplicate"] is False
     assert data["job"]["status"] == "queued"
     assert repository.list_jobs()[0].delivery_id == "delivery-1"
+
+
+def test_webhook_enqueue_does_not_require_a_second_state_transaction(
+    client: TestClient,
+    repository: JobRepository,
+    labeled_payload: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_transition = repository.transition
+
+    def reject_separate_enqueue(
+        job_id: str,
+        target: JobStatus,
+        fields: Mapping[str, object] | None = None,
+    ) -> Job:
+        if target is JobStatus.QUEUED:
+            raise RuntimeError("separate enqueue transaction")
+        return original_transition(job_id, target, fields)
+
+    monkeypatch.setattr(repository, "transition", reject_separate_enqueue)
+
+    response = _post_webhook(client, labeled_payload, delivery_id="atomic-enqueue")
+
+    assert response.status_code == 200
+    assert response.json()["job"]["status"] == "queued"
 
 
 def test_invalid_hmac_is_rejected(client: TestClient, labeled_payload: dict[str, object]) -> None:

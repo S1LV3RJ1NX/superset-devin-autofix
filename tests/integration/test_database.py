@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import sqlite3
+from pathlib import Path
+
 import pytest
 
 from app.database import InvalidTransitionError, JobRepository
@@ -79,3 +82,77 @@ def test_metrics_include_terminal_counts_and_elapsed_pr_time(
     assert metrics["completion_rate"] == 1.0
     assert metrics["tasks_with_pr"] == 1
     assert isinstance(metrics["average_elapsed_seconds_to_pr"], float)
+
+
+def test_pr_metrics_include_every_observed_pr_regardless_of_outcome(
+    repository: JobRepository,
+) -> None:
+    for delivery_id, outcome in (
+        ("successful-pr", JobStatus.SUCCEEDED),
+        ("failed-after-pr", JobStatus.FAILED),
+    ):
+        job_id = _create_job(repository, delivery_id)
+        repository.transition(job_id, JobStatus.QUEUED)
+        repository.transition(
+            job_id,
+            JobStatus.SESSION_CREATED,
+            {
+                "devin_id": f"devin-{delivery_id}",
+                "devin_url": f"https://app.devin.ai/sessions/{delivery_id}",
+            },
+        )
+        repository.transition(job_id, JobStatus.RUNNING)
+        repository.update_runtime(
+            job_id,
+            {
+                "pr_url": f"https://github.com/S1LV3RJ1NX/superset/pull/{delivery_id}",
+                "pr_created_at": utc_now(),
+            },
+        )
+        repository.transition(job_id, outcome)
+
+    metrics = repository.metrics()
+
+    assert metrics["tasks_with_pr"] == 2
+    assert isinstance(metrics["average_elapsed_seconds_to_pr"], float)
+
+
+def test_initialize_migrates_session_request_timestamp(tmp_path: Path) -> None:
+    database_path = tmp_path / "legacy.sqlite3"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE jobs (
+                id TEXT PRIMARY KEY,
+                delivery_id TEXT NOT NULL UNIQUE,
+                issue_number INTEGER NOT NULL,
+                issue_title TEXT NOT NULL,
+                issue_body TEXT NOT NULL,
+                issue_url TEXT NOT NULL,
+                repository TEXT NOT NULL,
+                simulated INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL,
+                received_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                queued_at TEXT,
+                session_created_at TEXT,
+                started_at TEXT,
+                completed_at TEXT,
+                devin_id TEXT,
+                devin_url TEXT,
+                pr_url TEXT,
+                pr_created_at TEXT,
+                structured_output TEXT,
+                last_message TEXT,
+                error TEXT,
+                attempts INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+
+    repository = JobRepository(database_path)
+    repository.initialize()
+
+    with sqlite3.connect(database_path) as connection:
+        columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(jobs)")}
+    assert "session_requested_at" in columns

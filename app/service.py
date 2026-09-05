@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from app.config import Settings
 from app.database import JobRepository
 from app.github import IgnoredWebhook, parse_autofix_event, verify_signature
-from app.models import Job, JobStatus
+from app.models import Job
 
 
 @dataclass(frozen=True)
@@ -51,7 +51,7 @@ class JobService:
             return IngestResult(job=None, created=False, ignored_reason=str(exc))
 
         effective_delivery_id = f"simulation:{delivery_id}" if simulated else delivery_id
-        job, created = self.repository.create_or_get(
+        job, created = self.repository.create_or_get_queued(
             delivery_id=effective_delivery_id,
             issue_number=event.issue.number,
             issue_title=event.issue.title,
@@ -60,6 +60,4 @@ class JobService:
             repository=event.repository.full_name,
             simulated=simulated,
         )
-        if created:
-            job = self.repository.transition(job.id, JobStatus.QUEUED)
         return IngestResult(job=job, created=created)

@@ -62,6 +62,16 @@ class DevinMessagePage(BaseModel):
     has_next_page: bool = False
 
 
+class DevinSessionPage(BaseModel):
+    """Cursor-paginated Devin sessions response."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    items: list[DevinSession]
+    end_cursor: str | None = None
+    has_next_page: bool = False
+
+
 @dataclass(frozen=True)
 class IssueContext:
     """Issue information used to construct a constrained Devin prompt."""
@@ -155,14 +165,14 @@ class DevinClient:
         if not self.settings.devin_org_id:
             raise DevinAPIError("DEVIN_ORG_ID is not configured")
 
-    async def create_session(self, issue: IssueContext) -> DevinSession:
+    async def create_session(self, issue: IssueContext, tracking_tag: str) -> DevinSession:
         """Create a constrained Devin remediation session."""
         self._validate_configuration()
         payload: dict[str, object] = {
             "prompt": build_session_prompt(issue),
             "title": f"Autofix #{issue.number}: {issue.title}",
             "repos": [issue.repository],
-            "tags": ["devin-autofix", f"github-issue-{issue.number}"],
+            "tags": ["devin-autofix", f"github-issue-{issue.number}", tracking_tag],
             "resumable": True,
             "structured_output_required": True,
             "structured_output_schema": COMPLETION_SCHEMA,
@@ -173,6 +183,17 @@ class DevinClient:
         )
         self._raise_for_status(response)
         return DevinSession.model_validate_json(response.content)
+
+    async def find_session_by_tag(self, tracking_tag: str) -> DevinSession | None:
+        """Find a session created for a durable control-plane job."""
+        self._validate_configuration()
+        response = await self._client().get(
+            f"/v3/organizations/{self.settings.devin_org_id}/sessions",
+            params={"first": 1, "tags": tracking_tag},
+        )
+        self._raise_for_status(response)
+        page = DevinSessionPage.model_validate_json(response.content)
+        return page.items[0] if page.items else None
 
     async def get_session(self, devin_id: str) -> DevinSession:
         """Get the latest session status and structured output."""

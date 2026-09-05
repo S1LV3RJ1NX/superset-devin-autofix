@@ -40,15 +40,16 @@ Jobs move through:
 
 ```text
 received -> queued -> session_created -> running
-                                      -> succeeded
-                                      -> failed
-                                      -> timed_out
-                                      -> needs_human_input
+           |                          -> succeeded
+           |                          -> failed
+           |                          -> timed_out
+           +------------------------> needs_human_input
 ```
 
 Each job records its GitHub delivery and issue, timestamps, simulation marker,
-Devin session ID/URL, latest Devin message, structured completion output,
-eventual PR URL, and elapsed time to the first observed PR.
+session-request timestamp, Devin session ID/URL, latest Devin message,
+structured completion output, eventual PR URL, and elapsed time to the first
+observed PR.
 
 ## Configuration
 
@@ -66,6 +67,10 @@ Required for real session creation:
 
 - `DEVIN_API_KEY`
 - `DEVIN_ORG_ID` (an ID with the `org-` prefix)
+
+The Devin service user needs organization-level `ManageOrgSessions` and
+`ViewOrgSessions` permissions so uncertain creation outcomes can be reconciled
+without issuing a duplicate paid request.
 
 Important optional settings:
 
@@ -124,7 +129,9 @@ simulations.
 
 Returns real-job counts for tasks started, active tasks, each terminal status,
 completion rate, PR count, and average elapsed seconds to PR. It also reports
-the separate simulated-job count.
+the separate simulated-job count. PR count and elapsed time include every
+production job with an observed PR, regardless of its eventual terminal status;
+completion rate is based only on structured `succeeded` outcomes.
 
 ### `POST /simulate`
 
@@ -147,13 +154,16 @@ session or pull request was created.
 The client uses only the current v3 organization endpoints:
 
 - `POST /v3/organizations/{org_id}/sessions`
+- `GET /v3/organizations/{org_id}/sessions?tags=...`
 - `GET /v3/organizations/{org_id}/sessions/{devin_id}`
 - `GET /v3/organizations/{org_id}/sessions/{devin_id}/messages`
 
 The creation request scopes Devin to the target repository and issue, requires
 focused tests plus changed-file pre-commit validation, forbids credential
 exposure and auto-merge, and requires JSON-schema-validated completion output.
-No test calls the real Devin API.
+Each request also carries a unique job tag. The worker records request intent
+before the external call and reconciles by that tag after an uncertain outcome
+instead of issuing a second paid session. No test calls the real Devin API.
 
 ## Validation
 
@@ -174,7 +184,9 @@ test calls the real Devin API.
 
 - The background worker is designed for one service replica; distributed
   leasing is not implemented.
-- Devin API errors are terminal rather than retried with backoff.
+- Polling errors are terminal rather than retried with backoff. An uncertain
+  creation outcome is reconciled by job tag and escalated for human review if
+  no session appears before the configured timeout.
 - SQLite is local to one deployment and has no external backup automation.
 - Read endpoints and development simulation do not include service-level
   authentication; deploy behind trusted ingress and keep simulation disabled

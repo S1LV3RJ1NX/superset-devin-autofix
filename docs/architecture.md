@@ -14,9 +14,9 @@ GitHub issues.labeled
   -> HMAC-SHA256 verification
   -> event and repository filtering
   -> delivery-ID deduplication
-  -> SQLite job
+  -> atomic queued SQLite job
   -> in-process worker
-  -> Devin v3 session creation and polling
+  -> tagged Devin v3 session creation, reconciliation, and polling
   -> persisted session/message/PR data
   -> GET /jobs and GET /metrics
 ```
@@ -29,21 +29,33 @@ boundaries injectable in tests.
 
 ```text
 received -> queued -> session_created -> running
-                                      -> succeeded
-                                      -> failed
-                                      -> timed_out
-                                      -> needs_human_input
+           |                          -> succeeded
+           |                          -> failed
+           |                          -> timed_out
+           +------------------------> needs_human_input
 ```
 
 Transitions are validated by the repository. Terminal states are immutable.
-The unique GitHub delivery ID is the idempotency key.
+The unique GitHub delivery ID is the intake idempotency key. New webhook jobs
+are inserted as queued in one transaction; the worker also recovers received
+rows written by earlier versions.
+
+Before the paid session call, the worker persists `session_requested_at` and a
+single attempt. The request includes a unique job tag. If the process loses the
+response or cannot persist it, the worker searches Devin by that tag and never
+automatically issues a second create request. An unreconciled request becomes
+`needs_human_input` after the configured timeout.
 
 ## Trust boundaries
 
-- GitHub input is untrusted until its raw body passes HMAC verification.
+- GitHub input, including `X-GitHub-Delivery`, is untrusted until its raw body
+  passes HMAC verification. Possession of the webhook secret is therefore part
+  of the trusted operator boundary.
 - Secrets enter through environment variables and are never persisted or
   logged.
 - Devin responses are validated with typed Pydantic models.
+- A PR URL is evidence of a created PR, not evidence of successful remediation;
+  only structured `status=succeeded` records success.
 - Simulated jobs are marked in storage and excluded from worker queries.
 - The service cannot merge because it has no merge implementation or endpoint.
 

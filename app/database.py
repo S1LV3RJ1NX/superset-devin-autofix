@@ -25,6 +25,7 @@ _MUTABLE_COLUMNS = frozenset(
         "devin_url",
         "pr_url",
         "pr_created_at",
+        "session_requested_at",
         "structured_output",
         "last_message",
         "error",
@@ -84,6 +85,7 @@ class JobRepository:
                     received_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     queued_at TEXT,
+                    session_requested_at TEXT,
                     session_created_at TEXT,
                     started_at TEXT,
                     completed_at TEXT,
@@ -98,6 +100,11 @@ class JobRepository:
                 )
                 """
             )
+            columns = {
+                str(row["name"]) for row in connection.execute("PRAGMA table_info(jobs)").fetchall()
+            }
+            if "session_requested_at" not in columns:
+                connection.execute("ALTER TABLE jobs ADD COLUMN session_requested_at TEXT")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)")
             connection.commit()
 
@@ -113,8 +120,55 @@ class JobRepository:
         simulated: bool,
     ) -> tuple[Job, bool]:
         """Create a received job or return the existing delivery."""
+        return self._create_or_get(
+            delivery_id=delivery_id,
+            issue_number=issue_number,
+            issue_title=issue_title,
+            issue_body=issue_body,
+            issue_url=issue_url,
+            repository=repository,
+            simulated=simulated,
+            initial_status=JobStatus.RECEIVED,
+        )
+
+    def create_or_get_queued(
+        self,
+        *,
+        delivery_id: str,
+        issue_number: int,
+        issue_title: str,
+        issue_body: str,
+        issue_url: str,
+        repository: str,
+        simulated: bool,
+    ) -> tuple[Job, bool]:
+        """Atomically create a queued job or return the existing delivery."""
+        return self._create_or_get(
+            delivery_id=delivery_id,
+            issue_number=issue_number,
+            issue_title=issue_title,
+            issue_body=issue_body,
+            issue_url=issue_url,
+            repository=repository,
+            simulated=simulated,
+            initial_status=JobStatus.QUEUED,
+        )
+
+    def _create_or_get(
+        self,
+        *,
+        delivery_id: str,
+        issue_number: int,
+        issue_title: str,
+        issue_body: str,
+        issue_url: str,
+        repository: str,
+        simulated: bool,
+        initial_status: JobStatus,
+    ) -> tuple[Job, bool]:
         now = utc_now()
         job_id = str(uuid4())
+        queued_at = now if initial_status is JobStatus.QUEUED else None
         try:
             with self._connect() as connection:
                 connection.execute(
@@ -122,8 +176,8 @@ class JobRepository:
                     INSERT INTO jobs (
                         id, delivery_id, issue_number, issue_title, issue_body,
                         issue_url, repository, simulated, status, received_at,
-                        updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        updated_at, queued_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         job_id,
@@ -134,9 +188,10 @@ class JobRepository:
                         issue_url,
                         repository,
                         int(simulated),
-                        JobStatus.RECEIVED.value,
+                        initial_status.value,
                         _timestamp(now),
                         _timestamp(now),
+                        _timestamp(queued_at),
                     ),
                 )
                 connection.commit()
@@ -319,6 +374,7 @@ class JobRepository:
             or raise_invalid_timestamp("received_at"),
             updated_at=_parse_timestamp(row["updated_at"]) or raise_invalid_timestamp("updated_at"),
             queued_at=_parse_timestamp(row["queued_at"]),
+            session_requested_at=_parse_timestamp(row["session_requested_at"]),
             session_created_at=_parse_timestamp(row["session_created_at"]),
             started_at=_parse_timestamp(row["started_at"]),
             completed_at=_parse_timestamp(row["completed_at"]),

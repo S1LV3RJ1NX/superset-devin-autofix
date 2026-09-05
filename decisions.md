@@ -42,7 +42,8 @@ update rather than implicit string handling.
 Devin sessions.
 
 **Consequence:** A duplicate returns the original job. Development simulations
-use a namespaced delivery ID.
+use a namespaced delivery ID. The header is trusted only after HMAC
+authentication; compromise of the webhook secret compromises this boundary.
 
 ## D005: Authenticate the raw webhook body before parsing
 
@@ -75,7 +76,8 @@ session.
 **Why:** The worker needs deterministic status and PR extraction while keeping
 human review mandatory.
 
-**Consequence:** Missing success output or PR evidence becomes a failed job.
+**Consequence:** Missing or unrecognized success output becomes a failed job.
+A PR URL never substitutes for structured success.
 
 ## D008: Keep simulation on the production intake path
 
@@ -131,3 +133,32 @@ must block pushes.
 
 **Consequence:** Production secret provisioning is an operator responsibility,
 and missing credentials fail with safe messages.
+
+## D013: Reconcile session creation instead of retrying it
+
+**Decision:** Persist one session-creation attempt and its timestamp before the
+external call, attach a unique job tag to the request, and search Devin by that
+tag after an uncertain outcome. Never automatically issue a second create
+request for the same job.
+
+**Why:** The v3 create endpoint does not expose a documented idempotency key.
+A crash after remote creation but before local persistence would otherwise
+create duplicate paid sessions.
+
+**Consequence:** The service user also needs `ViewOrgSessions`. If a crash
+occurs before Devin accepts the request and no tagged session appears, the job
+requires human review after the configured timeout rather than risking
+duplicate spend.
+
+## D014: Keep PR timing independent from remediation success
+
+**Decision:** `tasks_with_pr` and `average_elapsed_seconds_to_pr` include every
+production job with an observed PR. `completion_rate` counts only jobs whose
+validated structured output reports `succeeded`.
+
+**Why:** Time to first PR and successful issue remediation are different
+operational signals. A later failure does not erase the fact that a PR was
+created, while PR presence alone must not inflate fix rate.
+
+**Consequence:** Consumers must use terminal status counts or completion rate
+when they need successful-remediation metrics.

@@ -37,7 +37,9 @@ make test-unit
 - FastAPI routes with temporary SQLite persistence.
 - Delivery idempotency and simulation behavior.
 - SQLite state transitions and aggregate metrics.
-- Worker behavior with a deterministic Devin boundary fake.
+- Atomic enqueue, received-job recovery, creation-outcome reconciliation, and
+  duplicate-session prevention with deterministic Devin boundary fakes.
+- Strict structured success mapping and active-session timeouts.
 - The complete webhook-to-worker-to-jobs/metrics path.
 
 Run with:

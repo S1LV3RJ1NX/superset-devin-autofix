@@ -17,12 +17,15 @@ from app.worker import JobWorker
 class CompletingDevinClient:
     """Deterministic Devin boundary fake for control-plane integration."""
 
-    async def create_session(self, issue: IssueContext) -> DevinSession:
+    async def create_session(self, issue: IssueContext, tracking_tag: str) -> DevinSession:
         return DevinSession(
             session_id=f"devin-{issue.number}",
             status="new",
             url=f"https://app.devin.ai/sessions/devin-{issue.number}",
         )
+
+    async def find_session_by_tag(self, tracking_tag: str) -> DevinSession | None:
+        return None
 
     async def get_session(self, devin_id: str) -> DevinSession:
         return DevinSession(

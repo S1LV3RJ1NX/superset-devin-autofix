@@ -49,7 +49,8 @@ def test_create_session_uses_v3_organization_api_and_constraints(
                 body="Reproduction",
                 url="https://github.com/S1LV3RJ1NX/superset/issues/7",
                 repository="S1LV3RJ1NX/superset",
-            )
+            ),
+            "devin-autofix-job-job-123",
         )
     )
     asyncio.run(http_client.aclose())
@@ -63,8 +64,50 @@ def test_create_session_uses_v3_organization_api_and_constraints(
     assert payload["repos"] == ["S1LV3RJ1NX/superset"]
     assert payload["structured_output_required"] is True
     assert payload["structured_output_schema"] == COMPLETION_SCHEMA
+    assert "devin-autofix-job-job-123" in payload["tags"]
     assert "Never merge or auto-merge" in payload["prompt"]
     assert "pre-commit run --from-ref origin/master --to-ref HEAD" in payload["prompt"]
+
+
+def test_find_session_by_tracking_tag(tmp_path: Path) -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "items": [
+                    {
+                        "session_id": "devin-reconciled",
+                        "status": "running",
+                        "url": "https://app.devin.ai/sessions/reconciled",
+                        "pull_requests": [],
+                    }
+                ],
+                "has_next_page": False,
+                "end_cursor": None,
+            },
+        )
+
+    settings = Settings(
+        database_path=tmp_path / "jobs.sqlite3",
+        devin_api_key="secret-key",
+        devin_org_id="org-123",
+    )
+    http_client = httpx.AsyncClient(
+        base_url="https://api.devin.ai", transport=httpx.MockTransport(handler)
+    )
+    client = DevinClient(settings, http_client)
+
+    session = asyncio.run(client.find_session_by_tag("devin-autofix-job-job-123"))
+    asyncio.run(http_client.aclose())
+
+    assert session is not None
+    assert session.session_id == "devin-reconciled"
+    assert requests[0].url.path == "/v3/organizations/org-123/sessions"
+    assert requests[0].url.params["tags"] == "devin-autofix-job-job-123"
+    assert requests[0].url.params["first"] == "1"
 
 
 def test_poll_status_and_paginated_messages(tmp_path: Path) -> None:
