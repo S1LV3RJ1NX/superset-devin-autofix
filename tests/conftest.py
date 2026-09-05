@@ -19,6 +19,7 @@ def settings(tmp_path: Path) -> Settings:
         app_env="development",
         database_path=tmp_path / "jobs.sqlite3",
         github_webhook_secret="test-webhook-secret",
+        control_plane_api_key="test-control-plane-key",
         devin_api_key="test-devin-key",
         devin_org_id="org-test",
         poll_interval_seconds=0.01,

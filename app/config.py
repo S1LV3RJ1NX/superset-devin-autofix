@@ -19,6 +19,7 @@ class Settings:
     app_env: str = "production"
     database_path: Path = Path("data/control-plane.sqlite3")
     github_webhook_secret: str = ""
+    control_plane_api_key: str = ""
     devin_api_key: str = ""
     devin_org_id: str = ""
     devin_api_base_url: str = "https://api.devin.ai"
@@ -35,6 +36,7 @@ class Settings:
             app_env=os.getenv("APP_ENV", "production"),
             database_path=Path(os.getenv("DATABASE_PATH", "data/control-plane.sqlite3")),
             github_webhook_secret=os.getenv("GITHUB_WEBHOOK_SECRET", ""),
+            control_plane_api_key=os.getenv("CONTROL_PLANE_API_KEY", ""),
             devin_api_key=os.getenv("DEVIN_API_KEY", ""),
             devin_org_id=os.getenv("DEVIN_ORG_ID", ""),
             devin_api_base_url=os.getenv("DEVIN_API_BASE_URL", "https://api.devin.ai").rstrip("/"),

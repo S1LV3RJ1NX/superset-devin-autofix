@@ -63,6 +63,10 @@ Required for webhook intake:
 
 - `GITHUB_WEBHOOK_SECRET`
 
+Required for operator endpoints:
+
+- `CONTROL_PLANE_API_KEY`
+
 Required for real session creation:
 
 - `DEVIN_API_KEY`
@@ -123,7 +127,7 @@ without creating another session.
 ### `GET /jobs`
 
 Lists jobs newest first. `?include_simulated=false` hides development
-simulations.
+simulations. Send `Authorization: Bearer $CONTROL_PLANE_API_KEY`.
 
 ### `GET /metrics`
 
@@ -141,9 +145,13 @@ filtering, deduplication, persistence, and queueing path:
 
 ```bash
 curl -X POST http://localhost:8000/simulate \
+  -H "Authorization: Bearer $CONTROL_PLANE_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"delivery_id":"local-example-1"}'
 ```
+
+An explicitly supplied payload, including an empty object, is processed as
+provided and is never replaced by the fixture.
 
 The resulting job is explicitly marked `simulated`. The worker excludes
 simulated jobs, and the response explicitly reports that no external Devin
@@ -188,7 +196,6 @@ test calls the real Devin API.
   creation outcome is reconciled by job tag and escalated for human review if
   no session appears before the configured timeout.
 - SQLite is local to one deployment and has no external backup automation.
-- Read endpoints and development simulation do not include service-level
-  authentication; deploy behind trusted ingress and keep simulation disabled
-  outside development.
+- `/metrics` and `/health` remain unauthenticated; use trusted ingress if
+  operational metrics should not be public.
 - GitHub status comments and checks are not written in this version.

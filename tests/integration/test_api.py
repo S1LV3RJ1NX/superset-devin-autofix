@@ -15,6 +15,8 @@ from app.github import sign_payload
 from app.main import create_app
 from app.models import Job, JobStatus
 
+OPERATOR_HEADERS = {"Authorization": "Bearer test-control-plane-key"}
+
 
 def _post_webhook(
     client: TestClient,
@@ -128,10 +130,31 @@ def test_delivery_id_is_idempotent(
     assert len(repository.list_jobs()) == 1
 
 
+def test_jobs_requires_valid_bearer_authentication(
+    client: TestClient,
+    labeled_payload: dict[str, object],
+) -> None:
+    _post_webhook(client, labeled_payload)
+
+    missing = client.get("/jobs")
+    invalid = client.get("/jobs", headers={"Authorization": "Bearer wrong-key"})
+    authorized = client.get("/jobs", headers=OPERATOR_HEADERS)
+
+    assert missing.status_code == 401
+    assert missing.headers["www-authenticate"] == "Bearer"
+    assert invalid.status_code == 401
+    assert authorized.status_code == 200
+    assert authorized.json()["total"] == 1
+
+
 def test_simulation_uses_shared_path_without_external_claims(
     client: TestClient, repository: JobRepository
 ) -> None:
-    response = client.post("/simulate", json={"delivery_id": "fixture-replay"})
+    response = client.post(
+        "/simulate",
+        json={"delivery_id": "fixture-replay"},
+        headers=OPERATOR_HEADERS,
+    )
 
     assert response.status_code == 200
     data = response.json()
@@ -144,6 +167,35 @@ def test_simulation_uses_shared_path_without_external_claims(
     assert data["job"]["pr_url"] is None
     assert repository.metrics()["tasks_started"] == 0
     assert repository.metrics()["simulated_tasks"] == 1
+
+
+def test_simulation_requires_valid_bearer_authentication(client: TestClient) -> None:
+    missing = client.post("/simulate")
+    invalid = client.post(
+        "/simulate",
+        headers={"Authorization": "Bearer wrong-key"},
+    )
+
+    assert missing.status_code == 401
+    assert missing.headers["www-authenticate"] == "Bearer"
+    assert invalid.status_code == 401
+
+
+def test_explicit_empty_simulation_payload_is_validated(
+    client: TestClient,
+    repository: JobRepository,
+) -> None:
+    response = client.post(
+        "/simulate",
+        json={"delivery_id": "empty-payload", "payload": {}},
+        headers=OPERATOR_HEADERS,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["accepted"] is False
+    assert response.json()["ignored"] is True
+    assert response.json()["reason"] == "issue action is not labeled"
+    assert repository.list_jobs() == []
 
 
 def test_simulation_is_hidden_outside_development(tmp_path: Path) -> None:

@@ -51,7 +51,8 @@ states, and enforces the configured timeout.
 
 Builds the FastAPI application and lifecycle. It wires settings, repository,
 service, client, and worker; exposes health, webhook, jobs, metrics, and
-simulation routes; and closes background resources during shutdown.
+simulation routes; enforces operator bearer authentication for job data and
+simulation; and closes background resources during shutdown.
 
 ## `app.fixtures`
 

@@ -51,6 +51,8 @@ automatically issues a second create request. An unreconciled request becomes
 - GitHub input, including `X-GitHub-Delivery`, is untrusted until its raw body
   passes HMAC verification. Possession of the webhook secret is therefore part
   of the trusted operator boundary.
+- Job data and development simulation require an operator bearer token checked
+  against `CONTROL_PLANE_API_KEY` with constant-time comparison.
 - Secrets enter through environment variables and are never persisted or
   logged.
 - Devin responses are validated with typed Pydantic models.

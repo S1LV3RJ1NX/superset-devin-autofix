@@ -35,7 +35,8 @@ make test-unit
 `tests/integration` covers collaborating components:
 
 - FastAPI routes with temporary SQLite persistence.
-- Delivery idempotency and simulation behavior.
+- Operator bearer authentication, delivery idempotency, and exact simulation
+  payload behavior.
 - SQLite state transitions and aggregate metrics.
 - Atomic enqueue, received-job recovery, creation-outcome reconciliation, and
   duplicate-session prevention with deterministic Devin boundary fakes.

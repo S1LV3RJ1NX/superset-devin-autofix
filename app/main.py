@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import logging
 from collections.abc import AsyncIterator
@@ -44,6 +45,21 @@ def _result_payload(result: IngestResult) -> dict[str, object]:
         "duplicate": not result.created,
         "job": result.job.as_dict(),
     }
+
+
+def _require_operator_auth(authorization: str | None, api_key: str) -> None:
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="control plane API authentication is not configured",
+        )
+    scheme, separator, credentials = (authorization or "").partition(" ")
+    if not separator or scheme.lower() != "bearer" or not hmac.compare_digest(credentials, api_key):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid operator credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 def create_app(
@@ -115,7 +131,11 @@ def create_app(
         return response
 
     @app.get("/jobs")
-    async def list_jobs(include_simulated: bool = True) -> dict[str, object]:
+    async def list_jobs(
+        include_simulated: bool = True,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        _require_operator_auth(authorization, resolved_settings.control_plane_api_key)
         jobs = resolved_repository.list_jobs(include_simulated=include_simulated)
         return {"items": [job.as_dict() for job in jobs], "total": len(jobs)}
 
@@ -126,14 +146,16 @@ def create_app(
     @app.post("/simulate")
     async def simulate(
         simulation: SimulationRequest | None = None,
+        authorization: str | None = Header(default=None),
     ) -> dict[str, object]:
         if not resolved_settings.simulation_enabled:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="simulation is available only when APP_ENV=development",
             )
+        _require_operator_auth(authorization, resolved_settings.control_plane_api_key)
         request_data = simulation or SimulationRequest()
-        payload = request_data.payload or _load_fixture()
+        payload = request_data.payload if request_data.payload is not None else _load_fixture()
         body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
         try:
             result = service.ingest(

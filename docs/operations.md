@@ -4,13 +4,14 @@
 
 Copy `.env.example` to `.env` and provide secrets outside version control.
 Required webhook configuration is `GITHUB_WEBHOOK_SECRET`. Real Devin work also
-requires `DEVIN_API_KEY` and `DEVIN_ORG_ID`.
+requires `DEVIN_API_KEY` and `DEVIN_ORG_ID`. Set `CONTROL_PLANE_API_KEY` to a
+random secret used as the bearer token for `/jobs` and `/simulate`.
 
 The Devin service user needs `ManageOrgSessions` to create sessions and
 `ViewOrgSessions` to reconcile and poll them.
 
 Keep `APP_ENV=production` in deployed environments. `POST /simulate` is exposed
-only when `APP_ENV=development`.
+only when `APP_ENV=development` and also requires the operator bearer token.
 
 ## Container lifecycle
 
@@ -28,7 +29,8 @@ The service listens on port 8000 and stores SQLite data in the
 
 - `/health` reports process availability.
 - `/jobs` exposes durable state, Devin session URLs, last messages, structured
-  output, PR URLs, errors, and timestamps.
+  output, PR URLs, errors, and timestamps. It requires
+  `Authorization: Bearer $CONTROL_PLANE_API_KEY`.
 - `/metrics` exposes task counts, terminal outcomes, completion rate, and
   elapsed PR timing. PR count and timing include all production jobs with an
   observed PR, while completion rate counts only structured successful
@@ -54,5 +56,5 @@ Back up the SQLite volume before destructive infrastructure changes.
 ## Deployment constraints
 
 Run one worker-enabled replica. Multiple replicas need distributed leasing.
-Place read and simulation endpoints behind trusted ingress because service-level
-authentication is not implemented. Human review and merge remain mandatory.
+Protect `/metrics` with trusted ingress when operational metrics are sensitive.
+Human review and merge remain mandatory.

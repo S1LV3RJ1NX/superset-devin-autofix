@@ -82,7 +82,10 @@ def test_labeled_issue_reaches_success_and_updates_metrics(
     worker = JobWorker(settings, repository, CompletingDevinClient())
     asyncio.run(worker.run_once())
 
-    jobs = client.get("/jobs").json()["items"]
+    jobs = client.get(
+        "/jobs",
+        headers={"Authorization": "Bearer test-control-plane-key"},
+    ).json()["items"]
     assert jobs[0]["status"] == "succeeded"
     assert jobs[0]["devin_url"] == "https://app.devin.ai/sessions/devin-42"
     assert jobs[0]["pr_url"] == "https://github.com/S1LV3RJ1NX/superset/pull/42"

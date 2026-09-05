@@ -162,3 +162,17 @@ created, while PR presence alone must not inflate fix rate.
 
 **Consequence:** Consumers must use terminal status counts or completion rate
 when they need successful-remediation metrics.
+
+## D015: Authenticate operator endpoints with a bearer token
+
+**Decision:** Require `Authorization: Bearer $CONTROL_PLANE_API_KEY` for
+`GET /jobs` and development-only `POST /simulate`. Fail closed when the key is
+not configured and compare credentials in constant time.
+
+**Why:** Job records contain issue and Devin execution details, while simulation
+can create unbounded durable records. Both capabilities belong to operators,
+not anonymous network clients.
+
+**Consequence:** Deployments must provision a separate control-plane key.
+`/health`, `/metrics`, and the independently HMAC-authenticated GitHub webhook
+remain outside this bearer-token boundary.
