@@ -188,6 +188,7 @@ guessing its result. No test calls the real Devin API.
 ## Validation
 
 ```bash
+cp .env.example .env
 make check
 make test-unit
 make test-integration
