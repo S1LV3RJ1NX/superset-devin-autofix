@@ -53,10 +53,11 @@ whether to submit a new GitHub delivery.
 
 Worker-cycle and individual-job orchestration failures are logged without
 terminating the background task. Polling errors remain terminal in v1. When an
-active session exceeds `SESSION_TIMEOUT_SECONDS`, the worker calls the v3
-termination endpoint before recording `timed_out`. A failed termination leaves
-the job active so the worker retries rather than losing visibility of remote
-work.
+active job exceeds `SESSION_TIMEOUT_SECONDS`, the worker first reads its latest
+remote state. A session that completed during a polling gap keeps its structured
+result and PR metadata. A session that remains active is terminated through the
+v3 API before the job records `timed_out`. A failed termination leaves the job
+active so the worker retries rather than losing visibility of remote work.
 
 Application shutdown signals and cancels the worker task, interrupting active
 HTTP polling before the Devin client is closed.

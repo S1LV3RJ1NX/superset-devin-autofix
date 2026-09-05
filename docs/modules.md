@@ -46,8 +46,9 @@ Advances real jobs through session creation and polling. It persists Devin
 session request intent before the external call, reconciles uncertain outcomes
 without duplicate creates, recovers received jobs, persists session metadata,
 messages, structured output, and PR URLs, maps remote states to terminal job
-states, isolates cycle and per-job failures, and terminates remote work before
-recording a timeout.
+states, isolates cycle and per-job failures, preserves completions observed
+after polling gaps, and terminates still-active remote work before recording a
+timeout.
 
 ## `app.main`
 

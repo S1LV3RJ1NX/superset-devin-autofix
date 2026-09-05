@@ -173,8 +173,9 @@ exposure and auto-merge, and requires JSON-schema-validated completion output.
 Each request also carries a unique job tag. The worker records request intent
 before the external call and reconciles by that tag after an uncertain outcome
 instead of issuing a second paid session. When the configured timeout expires,
-the worker terminates the remote session before marking the job timed out. No
-test calls the real Devin API.
+the worker first observes the latest remote state so completion output and PR
+metadata are preserved, then terminates only a still-active session before
+marking the job timed out. No test calls the real Devin API.
 
 ## Validation
 

@@ -86,10 +86,7 @@ class JobWorker:
         created_jobs = self.repository.list_by_statuses(frozenset({JobStatus.SESSION_CREATED}))
         for job in created_jobs:
             try:
-                if self._has_timed_out(job.session_created_at):
-                    await self._terminate_timed_out_session(job)
-                else:
-                    self.repository.transition(job.id, JobStatus.RUNNING)
+                self.repository.transition(job.id, JobStatus.RUNNING)
             except Exception:
                 logger.exception("failed to process created session for job_id=%s", job.id)
 
@@ -188,10 +185,6 @@ class JobWorker:
             )
             return
 
-        if self._has_timed_out(job.session_created_at or job.started_at):
-            await self._terminate_timed_out_session(job)
-            return
-
         try:
             session, messages = await asyncio.gather(
                 self.devin_client.get_session(job.devin_id),
@@ -208,10 +201,15 @@ class JobWorker:
                 fields["last_message"] = devin_messages[-1]
             if fields:
                 job = self.repository.update_runtime(job.id, fields)
-            self._apply_session_state(job, session)
+            if self._apply_session_state(job, session):
+                return
         except Exception as exc:
             logger.exception("failed to poll Devin session for job_id=%s", job.id)
             self.repository.transition(job.id, JobStatus.FAILED, {"error": _safe_error(exc)})
+            return
+
+        if self._has_timed_out(job.session_created_at or job.started_at):
+            await self._terminate_timed_out_session(job)
 
     async def _terminate_timed_out_session(self, job: Job) -> None:
         if not job.devin_id:
@@ -236,28 +234,28 @@ class JobWorker:
             {"error": "Devin session exceeded the configured timeout and was terminated"},
         )
 
-    def _apply_session_state(self, job: Job, session: DevinSession) -> None:
+    def _apply_session_state(self, job: Job, session: DevinSession) -> bool:
         if session.status_detail in {"waiting_for_user", "waiting_for_approval"}:
             self.repository.transition(
                 job.id,
                 JobStatus.NEEDS_HUMAN_INPUT,
                 {"error": f"Devin is {session.status_detail}"},
             )
-            return
+            return True
         if session.status == "error":
             self.repository.transition(
                 job.id, JobStatus.FAILED, {"error": "Devin session reported an error"}
             )
-            return
+            return True
         if session.status == "suspended":
             self.repository.transition(
                 job.id,
                 JobStatus.NEEDS_HUMAN_INPUT,
                 {"error": f"Devin session suspended: {session.status_detail or 'unknown'}"},
             )
-            return
+            return True
         if session.status != "exit" and session.status_detail != "finished":
-            return
+            return False
 
         output_status = (
             session.structured_output.get("status")
@@ -276,8 +274,9 @@ class JobWorker:
                 JobStatus.FAILED,
                 {"error": "Devin completed without a recognized structured completion status"},
             )
-            return
+            return True
         self.repository.transition(job.id, target)
+        return True
 
     def _has_timed_out(self, started_at: datetime | None) -> bool:
         if started_at is None:

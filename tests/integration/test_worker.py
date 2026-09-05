@@ -157,11 +157,60 @@ class StructuredPullRequestDevinClient(SuccessfulDevinClient):
         )
 
 
-class FailingTerminationDevinClient(SuccessfulDevinClient):
+class ActiveSessionDevinClient(SuccessfulDevinClient):
+    """Fake that reports an active remote session."""
+
+    async def get_session(self, devin_id: str) -> DevinSession:
+        return DevinSession(
+            session_id=devin_id,
+            status="running",
+            url=f"https://app.devin.ai/sessions/{devin_id}",
+        )
+
+    async def list_messages(self, devin_id: str) -> list[DevinMessage]:
+        return []
+
+
+class FailingTerminationDevinClient(ActiveSessionDevinClient):
     """Fake that cannot terminate an active session."""
 
     async def terminate_session(self, devin_id: str) -> None:
         raise RuntimeError("termination unavailable")
+
+
+class CompletedDuringGapDevinClient(SuccessfulDevinClient):
+    """Fake that reports completion after a local polling gap."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.session_reads = 0
+        self.message_reads = 0
+
+    async def get_session(self, devin_id: str) -> DevinSession:
+        self.session_reads += 1
+        return DevinSession(
+            session_id=devin_id,
+            status="exit",
+            status_detail="finished",
+            url=f"https://app.devin.ai/sessions/{devin_id}",
+            pull_requests=[
+                {
+                    "pr_url": "https://github.com/S1LV3RJ1NX/superset/pull/92",
+                    "pr_state": "open",
+                }
+            ],
+            structured_output={
+                "status": "succeeded",
+                "summary": "Completed while the worker was stopped",
+                "validation": ["pytest"],
+                "limitations": [],
+                "pr_url": "https://github.com/S1LV3RJ1NX/superset/pull/92",
+            },
+        )
+
+    async def list_messages(self, devin_id: str) -> list[DevinMessage]:
+        self.message_reads += 1
+        return []
 
 
 class ReconciliationOnlyDevinClient(SuccessfulDevinClient):
@@ -455,7 +504,7 @@ def test_active_session_times_out_from_session_creation(
     if initial_status is JobStatus.RUNNING:
         repository.transition(job.id, JobStatus.RUNNING)
     monkeypatch.setattr(worker_module, "utc_now", utc_now)
-    devin_client = SuccessfulDevinClient()
+    devin_client = ActiveSessionDevinClient()
     worker = JobWorker(settings, repository, devin_client)
 
     asyncio.run(worker.run_once())
@@ -464,6 +513,51 @@ def test_active_session_times_out_from_session_creation(
     assert timed_out is not None
     assert timed_out.status is JobStatus.TIMED_OUT
     assert devin_client.terminated_sessions == ["devin-timeout"]
+
+
+@pytest.mark.parametrize("initial_status", [JobStatus.SESSION_CREATED, JobStatus.RUNNING])
+def test_overdue_completed_session_preserves_remote_result(
+    settings: Settings,
+    repository: JobRepository,
+    monkeypatch: pytest.MonkeyPatch,
+    initial_status: JobStatus,
+) -> None:
+    job, _ = repository.create_or_get(
+        delivery_id=f"completed-during-gap-{initial_status.value}",
+        issue_number=92,
+        issue_title="Completed during polling gap",
+        issue_body="Body",
+        issue_url="https://github.com/S1LV3RJ1NX/superset/issues/92",
+        repository="S1LV3RJ1NX/superset",
+        simulated=False,
+    )
+    repository.transition(job.id, JobStatus.QUEUED)
+    creation_time = utc_now() - timedelta(seconds=settings.session_timeout_seconds + 1)
+    monkeypatch.setattr(database_module, "utc_now", lambda: creation_time)
+    repository.transition(
+        job.id,
+        JobStatus.SESSION_CREATED,
+        {
+            "devin_id": "devin-completed-during-gap",
+            "devin_url": "https://app.devin.ai/sessions/completed-during-gap",
+        },
+    )
+    if initial_status is JobStatus.RUNNING:
+        repository.transition(job.id, JobStatus.RUNNING)
+    monkeypatch.setattr(worker_module, "utc_now", utc_now)
+    devin_client = CompletedDuringGapDevinClient()
+    worker = JobWorker(settings, repository, devin_client)
+
+    asyncio.run(worker.run_once())
+
+    completed = repository.get(job.id)
+    assert completed is not None
+    assert completed.status is JobStatus.SUCCEEDED
+    assert completed.pr_url == "https://github.com/S1LV3RJ1NX/superset/pull/92"
+    assert completed.structured_output is not None
+    assert devin_client.session_reads == 1
+    assert devin_client.message_reads == 1
+    assert devin_client.terminated_sessions == []
 
 
 def test_timeout_remains_active_until_remote_termination_succeeds(

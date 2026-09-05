@@ -182,12 +182,14 @@ remain outside this bearer-token boundary.
 **Decision:** Catch unexpected failures at both worker-cycle and per-job
 boundaries. On application shutdown, cancel the worker task before closing the
 HTTP client. When an active job exceeds its timeout, terminate the Devin
-session through the v3 API before transitioning the local job to `timed_out`.
+session through the v3 API before transitioning the local job to `timed_out`,
+but only after reading its latest state.
 
 **Why:** An uncaught repository or transition error must not permanently stop
 all orchestration. Shutdown should not wait for in-flight HTTP timeouts.
 Stopping local polling without stopping remote work would allow unobserved
-spend and pull requests.
+spend and pull requests. Checking current state first prevents sessions that
+completed during a polling gap from becoming false timeouts.
 
 **Consequence:** Failed termination attempts leave the job active with an error
 and are retried on later worker cycles. Per-job failures are logged and do not

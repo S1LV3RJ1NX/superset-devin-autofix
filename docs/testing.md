@@ -43,6 +43,8 @@ make test-unit
 - Strict structured success mapping and active-session timeouts.
 - Worker-cycle/per-job failure isolation, remote timeout termination, and
   cancellation of active polling during shutdown.
+- Preservation of remote completion output and PR metadata after an overdue
+  polling gap.
 - The complete webhook-to-worker-to-jobs/metrics path.
 
 Run with:
