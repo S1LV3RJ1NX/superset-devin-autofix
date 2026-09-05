@@ -14,6 +14,10 @@ class DevinAPIError(RuntimeError):
     """Raised for a failed Devin API request."""
 
 
+class DevinConfigurationError(DevinAPIError):
+    """Raised before a request when Devin configuration is missing."""
+
+
 class DevinPullRequest(BaseModel):
     """Pull request attached to a Devin session."""
 
@@ -167,9 +171,9 @@ class DevinClient:
 
     def _validate_configuration(self) -> None:
         if not self.settings.devin_api_key:
-            raise DevinAPIError("DEVIN_API_KEY is not configured")
+            raise DevinConfigurationError("DEVIN_API_KEY is not configured")
         if not self.settings.devin_org_id:
-            raise DevinAPIError("DEVIN_ORG_ID is not configured")
+            raise DevinConfigurationError("DEVIN_ORG_ID is not configured")
 
     async def create_session(self, issue: IssueContext, tracking_tag: str) -> DevinSession:
         """Create a constrained Devin remediation session."""

@@ -105,6 +105,13 @@ class JobRepository:
             }
             if "session_requested_at" not in columns:
                 connection.execute("ALTER TABLE jobs ADD COLUMN session_requested_at TEXT")
+            connection.execute(
+                """
+                UPDATE jobs
+                SET session_requested_at = updated_at
+                WHERE attempts > 0 AND session_requested_at IS NULL
+                """
+            )
             connection.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)")
             connection.commit()
 

@@ -144,6 +144,7 @@ def test_metrics_use_one_job_snapshot(
 
 def test_initialize_migrates_session_request_timestamp(tmp_path: Path) -> None:
     database_path = tmp_path / "legacy.sqlite3"
+    legacy_updated_at = "2026-09-05T14:00:00+00:00"
     with sqlite3.connect(database_path) as connection:
         connection.execute(
             """
@@ -174,10 +175,36 @@ def test_initialize_migrates_session_request_timestamp(tmp_path: Path) -> None:
             )
             """
         )
+        connection.execute(
+            """
+            INSERT INTO jobs (
+                id, delivery_id, issue_number, issue_title, issue_body,
+                issue_url, repository, status, received_at, updated_at, attempts
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "legacy-job",
+                "legacy-delivery",
+                90,
+                "Legacy attempt",
+                "Body",
+                "https://github.com/S1LV3RJ1NX/superset/issues/90",
+                "S1LV3RJ1NX/superset",
+                JobStatus.QUEUED.value,
+                legacy_updated_at,
+                legacy_updated_at,
+                1,
+            ),
+        )
 
     repository = JobRepository(database_path)
     repository.initialize()
 
     with sqlite3.connect(database_path) as connection:
         columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(jobs)")}
+        session_requested_at = connection.execute(
+            "SELECT session_requested_at FROM jobs WHERE id = ?",
+            ("legacy-job",),
+        ).fetchone()
     assert "session_requested_at" in columns
+    assert session_requested_at == (legacy_updated_at,)

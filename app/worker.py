@@ -9,7 +9,7 @@ from typing import Protocol
 
 from app.config import Settings
 from app.database import JobRepository
-from app.devin import DevinMessage, DevinSession, IssueContext
+from app.devin import DevinConfigurationError, DevinMessage, DevinSession, IssueContext
 from app.models import Job, JobStatus, utc_now
 
 logger = logging.getLogger(__name__)
@@ -100,6 +100,11 @@ class JobWorker:
     async def _create_session(self, job: Job) -> None:
         tracking_tag = _session_tracking_tag(job.id)
         if job.attempts > 0:
+            if job.session_requested_at is None:
+                job = self.repository.update_runtime(
+                    job.id,
+                    {"session_requested_at": job.updated_at},
+                )
             await self._reconcile_session(job, tracking_tag)
             return
 
@@ -131,6 +136,13 @@ class JobWorker:
                 "created Devin session for job_id=%s issue_number=%s",
                 job.id,
                 job.issue_number,
+            )
+        except DevinConfigurationError as exc:
+            logger.error("Devin session creation is not configured for job_id=%s", job.id)
+            self.repository.transition(
+                job.id,
+                JobStatus.FAILED,
+                {"error": f"Devin session creation failed: {_safe_error(exc)}"},
             )
         except Exception as exc:
             logger.exception("Devin session creation outcome is uncertain for job_id=%s", job.id)

@@ -49,7 +49,10 @@ a unique job tag. After a lost response or database write failure, the worker
 reconciles that tag instead of creating another paid session. The client
 paginates the filtered response, verifies exact tag membership on each returned
 session, and treats multiple exact matches as an error rather than choosing by
-undocumented result order. If no session can be found before
+undocumented result order. Missing credentials fail the job immediately because
+configuration validation occurs before any request. Upgraded attempted jobs
+without `session_requested_at` use their last durable update timestamp as the
+reconciliation deadline. If no session can be found before
 `SESSION_TIMEOUT_SECONDS`, the job moves to `needs_human_input`; an operator
 must inspect Devin and the job before deciding whether to submit a new GitHub
 delivery.

@@ -174,14 +174,16 @@ Each request also carries a unique job tag. The worker records request intent
 before the external call and reconciles by that tag after an uncertain outcome
 instead of issuing a second paid session. Reconciliation paginates candidates,
 verifies exact tag membership locally, and rejects ambiguous matches rather
-than trusting API result order. The timeout is measured from the original
-session request, including reconciliation delays. When it expires, the worker
-first observes the latest remote state so completion output and PR metadata are
-preserved, then terminates only a still-active session before marking the job
-timed out. Message-polling failures do not discard an observed session state.
-If an overdue session's status cannot be read, the worker terminates it and
-records `needs_human_input` instead of guessing its result. No test calls the
-real Devin API.
+than trusting API result order. Missing Devin credentials are identified as
+pre-request failures and fail the job immediately. Legacy attempted jobs use
+their last durable update as a fallback request deadline. The timeout is
+measured from the original session request, including reconciliation delays.
+When it expires, the worker first observes the latest remote state so completion
+output and PR metadata are preserved, then terminates only a still-active
+session before marking the job timed out. Message-polling failures do not
+discard an observed session state. If an overdue session's status cannot be
+read, the worker terminates it and records `needs_human_input` instead of
+guessing its result. No test calls the real Devin API.
 
 ## Validation
 
@@ -206,7 +208,8 @@ test calls the real Devin API.
   implemented. Worker-cycle and per-job orchestration failures are logged and
   retried on later cycles. An uncertain creation outcome is reconciled by job
   tag and escalated for human review when lookup remains unavailable or no
-  session appears before the configured timeout.
+  session appears before the configured timeout. Missing Devin credentials fail
+  before reconciliation because no external request was attempted.
 - SQLite is local to one deployment and has no external backup automation.
 - `/metrics` and `/health` remain unauthenticated; use trusted ingress if
   operational metrics should not be public.

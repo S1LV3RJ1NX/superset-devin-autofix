@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import timedelta
 
+import httpx
 import pytest
 
 import app.database as database_module
 import app.worker as worker_module
 from app.config import Settings
 from app.database import JobRepository
-from app.devin import DevinMessage, DevinSession, IssueContext
+from app.devin import DevinClient, DevinMessage, DevinSession, IssueContext
 from app.models import Job, JobStatus, utc_now
 from app.worker import JobWorker
 
@@ -481,6 +483,90 @@ def test_worker_refuses_duplicate_create_when_first_request_cannot_be_reconciled
     assert unresolved.status is JobStatus.NEEDS_HUMAN_INPUT
     assert unresolved.devin_id is None
     assert unresolved.attempts == 1
+
+
+@pytest.mark.parametrize(
+    ("devin_api_key", "devin_org_id", "expected_error"),
+    [
+        ("", "org-test", "DEVIN_API_KEY is not configured"),
+        ("test-key", "", "DEVIN_ORG_ID is not configured"),
+    ],
+)
+def test_missing_devin_configuration_fails_before_reconciliation(
+    settings: Settings,
+    repository: JobRepository,
+    devin_api_key: str,
+    devin_org_id: str,
+    expected_error: str,
+) -> None:
+    job, _ = repository.create_or_get(
+        delivery_id="missing-devin-configuration",
+        issue_number=90,
+        issue_title="Reject unconfigured work",
+        issue_body="Body",
+        issue_url="https://github.com/S1LV3RJ1NX/superset/issues/90",
+        repository="S1LV3RJ1NX/superset",
+        simulated=False,
+    )
+    repository.transition(job.id, JobStatus.QUEUED)
+    unconfigured_settings = replace(
+        settings,
+        devin_api_key=devin_api_key,
+        devin_org_id=devin_org_id,
+    )
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(500)
+
+    http_client = httpx.AsyncClient(
+        base_url=unconfigured_settings.devin_api_base_url,
+        transport=httpx.MockTransport(handler),
+    )
+    worker = JobWorker(
+        unconfigured_settings,
+        repository,
+        DevinClient(unconfigured_settings, http_client),
+    )
+
+    asyncio.run(worker.run_once())
+    asyncio.run(http_client.aclose())
+
+    failed = repository.get(job.id)
+    assert failed is not None
+    assert failed.status is JobStatus.FAILED
+    assert failed.error == f"Devin session creation failed: {expected_error}"
+    assert requests == []
+
+
+def test_legacy_creation_attempt_without_request_time_expires(
+    settings: Settings,
+    repository: JobRepository,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job, _ = repository.create_or_get(
+        delivery_id="legacy-attempt-without-request-time",
+        issue_number=90,
+        issue_title="Expire legacy reconciliation",
+        issue_body="Body",
+        issue_url="https://github.com/S1LV3RJ1NX/superset/issues/90",
+        repository="S1LV3RJ1NX/superset",
+        simulated=False,
+    )
+    repository.transition(job.id, JobStatus.QUEUED)
+    legacy_attempt_time = utc_now() - timedelta(seconds=settings.session_timeout_seconds + 1)
+    monkeypatch.setattr(database_module, "utc_now", lambda: legacy_attempt_time)
+    repository.update_runtime(job.id, {"attempts": 1})
+    monkeypatch.setattr(worker_module, "utc_now", utc_now)
+    worker = JobWorker(settings, repository, ReconciliationOnlyDevinClient())
+
+    asyncio.run(worker.run_once())
+
+    unresolved = repository.get(job.id)
+    assert unresolved is not None
+    assert unresolved.status is JobStatus.NEEDS_HUMAN_INPUT
+    assert unresolved.session_requested_at == legacy_attempt_time
 
 
 def test_polling_failure_keeps_session_active_for_retry(

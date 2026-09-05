@@ -204,3 +204,18 @@ rather than reported as a known timeout or left running without observation.
 Per-job failures are logged and do not block unrelated jobs, while broad
 repository-read failures defer the cycle without killing the long-running
 worker.
+
+## D017: Separate known pre-request failures from uncertain creation
+
+**Decision:** Raise a distinct configuration error before Devin HTTP requests
+and fail that job immediately. Continue reconciling transport, response, and
+persistence failures that could have created a paid session. Backfill missing
+request timestamps for attempted legacy jobs from their last durable update.
+
+**Why:** Missing credentials prove no external side effect occurred, while
+other failures may hide a live session. Every ambiguous attempt still needs a
+finite reconciliation deadline.
+
+**Consequence:** Configuration errors are terminal without unnecessary human
+review. Legacy attempted jobs retain duplicate-session protection and
+eventually escalate if no tagged session can be reconciled.

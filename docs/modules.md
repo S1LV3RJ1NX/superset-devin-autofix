@@ -47,11 +47,12 @@ session request intent before the external call, reconciles uncertain outcomes
 without duplicate creates, recovers received jobs, persists session metadata,
 messages, structured output, and PR URLs, maps remote states to terminal job
 states, isolates cycle and per-job failures, preserves completions observed
-after polling gaps, keeps transient polling failures retryable, enforces the
-original request deadline during reconciliation, and terminates still-active
-remote work before recording a timeout. Session status remains actionable when
-optional message retrieval fails; overdue sessions with unreadable status are
-terminated and escalated for human review.
+after polling gaps, and keeps transient polling failures retryable. Known
+pre-request configuration failures fail immediately, while legacy creation
+attempts use their durable update time as a fallback reconciliation deadline.
+Still-active remote work is terminated before recording a timeout. Session
+status remains actionable when optional message retrieval fails; overdue
+sessions with unreadable status are terminated and escalated for human review.
 
 ## `app.main`
 
