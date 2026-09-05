@@ -12,3 +12,13 @@ __pycache__/
 *.db
 *.sqlite
 *.sqlite3
+
+# Local tooling
+.venv/
+.mypy_cache/
+.ruff_cache/
+dist/
+*.egg-info/
+
+# Runtime data
+data/
