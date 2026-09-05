@@ -34,6 +34,7 @@ class DevinSession(BaseModel):
     status_detail: str | None = None
     pull_requests: list[DevinPullRequest] = Field(default_factory=list)
     structured_output: dict[str, object] | None = None
+    tags: list[str] = Field(default_factory=list)
 
     @property
     def pr_url(self) -> str | None:
@@ -192,13 +193,24 @@ class DevinClient:
     async def find_session_by_tag(self, tracking_tag: str) -> DevinSession | None:
         """Find a session created for a durable control-plane job."""
         self._validate_configuration()
-        response = await self._client().get(
-            f"/v3/organizations/{self.settings.devin_org_id}/sessions",
-            params={"first": 1, "tags": tracking_tag},
-        )
-        self._raise_for_status(response)
-        page = DevinSessionPage.model_validate_json(response.content)
-        return page.items[0] if page.items else None
+        matches: list[DevinSession] = []
+        after: str | None = None
+        while True:
+            params: dict[str, str | int] = {"first": 200, "tags": tracking_tag}
+            if after:
+                params["after"] = after
+            response = await self._client().get(
+                f"/v3/organizations/{self.settings.devin_org_id}/sessions",
+                params=params,
+            )
+            self._raise_for_status(response)
+            page = DevinSessionPage.model_validate_json(response.content)
+            matches.extend(session for session in page.items if tracking_tag in session.tags)
+            if len(matches) > 1:
+                raise DevinAPIError("multiple Devin sessions matched tracking tag")
+            if not page.has_next_page or not page.end_cursor:
+                return matches[0] if matches else None
+            after = page.end_cursor
 
     async def get_session(self, devin_id: str) -> DevinSession:
         """Get the latest session status and structured output."""

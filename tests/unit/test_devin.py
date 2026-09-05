@@ -7,9 +7,10 @@ import json
 from pathlib import Path
 
 import httpx
+import pytest
 
 from app.config import Settings
-from app.devin import COMPLETION_SCHEMA, DevinClient, IssueContext
+from app.devin import COMPLETION_SCHEMA, DevinAPIError, DevinClient, IssueContext
 
 
 def test_create_session_uses_v3_organization_api_and_constraints(
@@ -74,19 +75,37 @@ def test_find_session_by_tracking_tag(tmp_path: Path) -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
+        if request.url.params.get("after") == "next-page":
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {
+                            "session_id": "devin-reconciled",
+                            "status": "running",
+                            "url": "https://app.devin.ai/sessions/reconciled",
+                            "tags": ["devin-autofix-job-job-123"],
+                            "pull_requests": [],
+                        }
+                    ],
+                    "has_next_page": False,
+                    "end_cursor": None,
+                },
+            )
         return httpx.Response(
             200,
             json={
                 "items": [
                     {
-                        "session_id": "devin-reconciled",
+                        "session_id": "devin-unrelated",
                         "status": "running",
-                        "url": "https://app.devin.ai/sessions/reconciled",
+                        "url": "https://app.devin.ai/sessions/unrelated",
+                        "tags": ["devin-autofix"],
                         "pull_requests": [],
                     }
                 ],
-                "has_next_page": False,
-                "end_cursor": None,
+                "has_next_page": True,
+                "end_cursor": "next-page",
             },
         )
 
@@ -105,9 +124,53 @@ def test_find_session_by_tracking_tag(tmp_path: Path) -> None:
 
     assert session is not None
     assert session.session_id == "devin-reconciled"
+    assert len(requests) == 2
     assert requests[0].url.path == "/v3/organizations/org-123/sessions"
     assert requests[0].url.params["tags"] == "devin-autofix-job-job-123"
-    assert requests[0].url.params["first"] == "1"
+    assert requests[1].url.params["after"] == "next-page"
+
+
+def test_find_session_rejects_ambiguous_tracking_tag(tmp_path: Path) -> None:
+    tracking_tag = "devin-autofix-job-job-123"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "items": [
+                    {
+                        "session_id": "devin-first",
+                        "status": "running",
+                        "url": "https://app.devin.ai/sessions/first",
+                        "tags": [tracking_tag],
+                        "pull_requests": [],
+                    },
+                    {
+                        "session_id": "devin-second",
+                        "status": "running",
+                        "url": "https://app.devin.ai/sessions/second",
+                        "tags": [tracking_tag],
+                        "pull_requests": [],
+                    },
+                ],
+                "has_next_page": False,
+                "end_cursor": None,
+            },
+        )
+
+    settings = Settings(
+        database_path=tmp_path / "jobs.sqlite3",
+        devin_api_key="secret-key",
+        devin_org_id="org-123",
+    )
+    http_client = httpx.AsyncClient(
+        base_url="https://api.devin.ai", transport=httpx.MockTransport(handler)
+    )
+    client = DevinClient(settings, http_client)
+
+    with pytest.raises(DevinAPIError, match="multiple Devin sessions matched tracking tag"):
+        asyncio.run(client.find_session_by_tag(tracking_tag))
+    asyncio.run(http_client.aclose())
 
 
 def test_terminate_session_uses_v3_organization_api(tmp_path: Path) -> None:

@@ -138,8 +138,10 @@ and missing credentials fail with safe messages.
 
 **Decision:** Persist one session-creation attempt and its timestamp before the
 external call, attach a unique job tag to the request, and search Devin by that
-tag after an uncertain outcome. Never automatically issue a second create
-request for the same job.
+tag after an uncertain outcome. Paginate results, verify exact tag membership
+locally, and reject multiple exact matches instead of relying on API filtering
+or ordering. Never automatically issue a second create request for the same
+job.
 
 **Why:** The v3 create endpoint does not expose a documented idempotency key.
 A crash after remote creation but before local persistence would otherwise
@@ -148,7 +150,8 @@ create duplicate paid sessions.
 **Consequence:** The service user also needs `ViewOrgSessions`. If a crash
 occurs before Devin accepts the request and no tagged session appears, the job
 requires human review after the configured timeout rather than risking
-duplicate spend.
+duplicate spend. Ambiguous exact matches remain unreconciled and surface an
+operator-visible error.
 
 ## D014: Keep PR timing independent from remediation success
 

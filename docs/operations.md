@@ -46,10 +46,13 @@ jobs directly as queued in the same transaction as delivery deduplication.
 
 Session creation intent is persisted before calling Devin, and each request has
 a unique job tag. After a lost response or database write failure, the worker
-reconciles that tag instead of creating another paid session. If no session can
-be found before `SESSION_TIMEOUT_SECONDS`, the job moves to
-`needs_human_input`; an operator must inspect Devin and the job before deciding
-whether to submit a new GitHub delivery.
+reconciles that tag instead of creating another paid session. The client
+paginates the filtered response, verifies exact tag membership on each returned
+session, and treats multiple exact matches as an error rather than choosing by
+undocumented result order. If no session can be found before
+`SESSION_TIMEOUT_SECONDS`, the job moves to `needs_human_input`; an operator
+must inspect Devin and the job before deciding whether to submit a new GitHub
+delivery.
 
 Worker-cycle and individual-job orchestration failures are logged without
 terminating the background task. Polling errors remain terminal in v1. When an

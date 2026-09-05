@@ -37,8 +37,8 @@ separate delivery-ID namespace.
 Contains typed Devin v3 session/message models, prompt construction, the
 structured completion schema, and the asynchronous Organization Sessions API
 client. The client supports session creation, status polling, cursor-paginated
-messages, tracking-tag reconciliation, session termination, and safe error
-translation.
+messages, exact and unambiguous tracking-tag reconciliation, session
+termination, and safe error translation.
 
 ## `app.worker`
 

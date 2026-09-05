@@ -42,9 +42,11 @@ rows written by earlier versions.
 
 Before the paid session call, the worker persists `session_requested_at` and a
 single attempt. The request includes a unique job tag. If the process loses the
-response or cannot persist it, the worker searches Devin by that tag and never
-automatically issues a second create request. An unreconciled request becomes
-`needs_human_input` after the configured timeout.
+response or cannot persist it, the worker searches Devin by that tag, verifies
+exact membership across paginated results, and never automatically issues a
+second create request. Ambiguous matches are rejected instead of relying on API
+ordering. An unreconciled request becomes `needs_human_input` after the
+configured timeout.
 
 ## Trust boundaries
 

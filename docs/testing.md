@@ -40,6 +40,7 @@ make test-unit
 - SQLite state transitions and aggregate metrics.
 - Atomic enqueue, received-job recovery, creation-outcome reconciliation, and
   duplicate-session prevention with deterministic Devin boundary fakes.
+- Paginated exact-tag reconciliation and rejection of ambiguous matches.
 - Strict structured success mapping and active-session timeouts.
 - Worker-cycle/per-job failure isolation, remote timeout termination, and
   cancellation of active polling during shutdown.
