@@ -1,0 +1,14 @@
+# Local secrets and environment configuration
+.env
+.env.*
+!.env.example
+
+# Python runtime artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local application data
+*.db
+*.sqlite
+*.sqlite3
