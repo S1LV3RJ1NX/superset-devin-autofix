@@ -176,3 +176,20 @@ not anonymous network clients.
 **Consequence:** Deployments must provision a separate control-plane key.
 `/health`, `/metrics`, and the independently HMAC-authenticated GitHub webhook
 remain outside this bearer-token boundary.
+
+## D016: Keep worker failures and remote timeouts observable
+
+**Decision:** Catch unexpected failures at both worker-cycle and per-job
+boundaries. On application shutdown, cancel the worker task before closing the
+HTTP client. When an active job exceeds its timeout, terminate the Devin
+session through the v3 API before transitioning the local job to `timed_out`.
+
+**Why:** An uncaught repository or transition error must not permanently stop
+all orchestration. Shutdown should not wait for in-flight HTTP timeouts.
+Stopping local polling without stopping remote work would allow unobserved
+spend and pull requests.
+
+**Consequence:** Failed termination attempts leave the job active with an error
+and are retried on later worker cycles. Per-job failures are logged and do not
+block unrelated jobs, while broad repository-read failures defer the cycle
+without killing the long-running worker.

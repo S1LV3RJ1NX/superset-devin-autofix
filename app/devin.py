@@ -209,6 +209,14 @@ class DevinClient:
         self._raise_for_status(response)
         return DevinSession.model_validate_json(response.content)
 
+    async def terminate_session(self, devin_id: str) -> None:
+        """Terminate an active Devin session."""
+        self._validate_configuration()
+        response = await self._client().delete(
+            f"/v3/organizations/{self.settings.devin_org_id}/sessions/{devin_id}"
+        )
+        self._raise_for_status(response)
+
     async def list_messages(self, devin_id: str) -> list[DevinMessage]:
         """List all session messages using v3 cursor pagination."""
         self._validate_configuration()

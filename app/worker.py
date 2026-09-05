@@ -30,6 +30,9 @@ class DevinSessionClient(Protocol):
     async def list_messages(self, devin_id: str) -> list[DevinMessage]:
         """Fetch remediation session messages."""
 
+    async def terminate_session(self, devin_id: str) -> None:
+        """Terminate a remediation session."""
+
 
 class JobWorker:
     """Advance queued jobs and poll active Devin sessions."""
@@ -48,7 +51,10 @@ class JobWorker:
     async def run(self) -> None:
         """Run until stopped, isolating failures to individual jobs."""
         while not self._stop_event.is_set():
-            await self.run_once()
+            try:
+                await self.run_once()
+            except Exception:
+                logger.exception("worker cycle failed")
             try:
                 await asyncio.wait_for(
                     self._stop_event.wait(),
@@ -65,26 +71,34 @@ class JobWorker:
         """Advance every non-simulated active job once."""
         received_jobs = self.repository.list_by_statuses(frozenset({JobStatus.RECEIVED}))
         for job in received_jobs:
-            self.repository.transition(job.id, JobStatus.QUEUED)
+            try:
+                self.repository.transition(job.id, JobStatus.QUEUED)
+            except Exception:
+                logger.exception("failed to recover received job_id=%s", job.id)
 
         queued_jobs = self.repository.list_by_statuses(frozenset({JobStatus.QUEUED}))
         for job in queued_jobs:
-            await self._create_session(job)
+            try:
+                await self._create_session(job)
+            except Exception:
+                logger.exception("failed to process queued job_id=%s", job.id)
 
         created_jobs = self.repository.list_by_statuses(frozenset({JobStatus.SESSION_CREATED}))
         for job in created_jobs:
-            if self._has_timed_out(job.session_created_at):
-                self.repository.transition(
-                    job.id,
-                    JobStatus.TIMED_OUT,
-                    {"error": "Devin session exceeded the configured timeout"},
-                )
-            else:
-                self.repository.transition(job.id, JobStatus.RUNNING)
+            try:
+                if self._has_timed_out(job.session_created_at):
+                    await self._terminate_timed_out_session(job)
+                else:
+                    self.repository.transition(job.id, JobStatus.RUNNING)
+            except Exception:
+                logger.exception("failed to process created session for job_id=%s", job.id)
 
         running_jobs = self.repository.list_by_statuses(frozenset({JobStatus.RUNNING}))
         for job in running_jobs:
-            await self._poll_session(job)
+            try:
+                await self._poll_session(job)
+            except Exception:
+                logger.exception("failed to process running job_id=%s", job.id)
 
     async def _create_session(self, job: Job) -> None:
         tracking_tag = _session_tracking_tag(job.id)
@@ -175,11 +189,7 @@ class JobWorker:
             return
 
         if self._has_timed_out(job.session_created_at or job.started_at):
-            self.repository.transition(
-                job.id,
-                JobStatus.TIMED_OUT,
-                {"error": "Devin session exceeded the configured timeout"},
-            )
+            await self._terminate_timed_out_session(job)
             return
 
         try:
@@ -202,6 +212,29 @@ class JobWorker:
         except Exception as exc:
             logger.exception("failed to poll Devin session for job_id=%s", job.id)
             self.repository.transition(job.id, JobStatus.FAILED, {"error": _safe_error(exc)})
+
+    async def _terminate_timed_out_session(self, job: Job) -> None:
+        if not job.devin_id:
+            self.repository.transition(
+                job.id,
+                JobStatus.FAILED,
+                {"error": "timed-out job has no Devin session ID"},
+            )
+            return
+        try:
+            await self.devin_client.terminate_session(job.devin_id)
+        except Exception as exc:
+            logger.exception("failed to terminate timed-out Devin session for job_id=%s", job.id)
+            self.repository.update_runtime(
+                job.id,
+                {"error": f"Devin session termination failed: {_safe_error(exc)}"},
+            )
+            return
+        self.repository.transition(
+            job.id,
+            JobStatus.TIMED_OUT,
+            {"error": "Devin session exceeded the configured timeout and was terminated"},
+        )
 
     def _apply_session_state(self, job: Job, session: DevinSession) -> None:
         if session.status_detail in {"waiting_for_user", "waiting_for_approval"}:

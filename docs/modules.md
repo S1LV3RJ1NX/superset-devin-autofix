@@ -37,7 +37,8 @@ separate delivery-ID namespace.
 Contains typed Devin v3 session/message models, prompt construction, the
 structured completion schema, and the asynchronous Organization Sessions API
 client. The client supports session creation, status polling, cursor-paginated
-messages, tracking-tag reconciliation, and safe error translation.
+messages, tracking-tag reconciliation, session termination, and safe error
+translation.
 
 ## `app.worker`
 
@@ -45,14 +46,16 @@ Advances real jobs through session creation and polling. It persists Devin
 session request intent before the external call, reconciles uncertain outcomes
 without duplicate creates, recovers received jobs, persists session metadata,
 messages, structured output, and PR URLs, maps remote states to terminal job
-states, and enforces the configured timeout.
+states, isolates cycle and per-job failures, and terminates remote work before
+recording a timeout.
 
 ## `app.main`
 
 Builds the FastAPI application and lifecycle. It wires settings, repository,
 service, client, and worker; exposes health, webhook, jobs, metrics, and
 simulation routes; enforces operator bearer authentication for job data and
-simulation; and closes background resources during shutdown.
+simulation; cancels active worker requests during shutdown; and closes
+background resources.
 
 ## `app.fixtures`
 

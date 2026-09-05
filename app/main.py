@@ -7,7 +7,7 @@ import hmac
 import json
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from uuid import uuid4
 
@@ -88,7 +88,9 @@ def create_app(
         finally:
             worker.stop()
             if worker_task is not None:
-                await worker_task
+                worker_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await worker_task
             await resolved_devin_client.close()
 
     app = FastAPI(

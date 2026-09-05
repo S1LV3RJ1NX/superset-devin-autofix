@@ -165,13 +165,16 @@ The client uses only the current v3 organization endpoints:
 - `GET /v3/organizations/{org_id}/sessions?tags=...`
 - `GET /v3/organizations/{org_id}/sessions/{devin_id}`
 - `GET /v3/organizations/{org_id}/sessions/{devin_id}/messages`
+- `DELETE /v3/organizations/{org_id}/sessions/{devin_id}`
 
 The creation request scopes Devin to the target repository and issue, requires
 focused tests plus changed-file pre-commit validation, forbids credential
 exposure and auto-merge, and requires JSON-schema-validated completion output.
 Each request also carries a unique job tag. The worker records request intent
 before the external call and reconciles by that tag after an uncertain outcome
-instead of issuing a second paid session. No test calls the real Devin API.
+instead of issuing a second paid session. When the configured timeout expires,
+the worker terminates the remote session before marking the job timed out. No
+test calls the real Devin API.
 
 ## Validation
 
@@ -192,9 +195,10 @@ test calls the real Devin API.
 
 - The background worker is designed for one service replica; distributed
   leasing is not implemented.
-- Polling errors are terminal rather than retried with backoff. An uncertain
-  creation outcome is reconciled by job tag and escalated for human review if
-  no session appears before the configured timeout.
+- Polling errors are terminal rather than retried with backoff. Worker-cycle
+  and per-job orchestration failures are logged and retried on later cycles.
+  An uncertain creation outcome is reconciled by job tag and escalated for
+  human review if no session appears before the configured timeout.
 - SQLite is local to one deployment and has no external backup automation.
 - `/metrics` and `/health` remain unauthenticated; use trusted ingress if
   operational metrics should not be public.

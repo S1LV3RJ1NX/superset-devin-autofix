@@ -41,6 +41,8 @@ make test-unit
 - Atomic enqueue, received-job recovery, creation-outcome reconciliation, and
   duplicate-session prevention with deterministic Devin boundary fakes.
 - Strict structured success mapping and active-session timeouts.
+- Worker-cycle/per-job failure isolation, remote timeout termination, and
+  cancellation of active polling during shutdown.
 - The complete webhook-to-worker-to-jobs/metrics path.
 
 Run with:

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import threading
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -11,11 +13,49 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.database import JobRepository
+from app.devin import DevinMessage, DevinSession, IssueContext
 from app.github import sign_payload
 from app.main import create_app
 from app.models import Job, JobStatus
 
 OPERATOR_HEADERS = {"Authorization": "Bearer test-control-plane-key"}
+
+
+class BlockingDevinClient:
+    """Fake client that records cancellation of active session polling."""
+
+    def __init__(self) -> None:
+        self.poll_started = threading.Event()
+        self.poll_cancelled = threading.Event()
+
+    async def create_session(self, issue: IssueContext, tracking_tag: str) -> DevinSession:
+        raise AssertionError("session creation is not expected")
+
+    async def find_session_by_tag(self, tracking_tag: str) -> DevinSession | None:
+        return None
+
+    async def get_session(self, devin_id: str) -> DevinSession:
+        self.poll_started.set()
+        try:
+            await asyncio.sleep(0.25)
+        except asyncio.CancelledError:
+            self.poll_cancelled.set()
+            raise
+        return DevinSession(
+            session_id=devin_id,
+            status="running",
+            url="https://app.devin.ai/sessions/shutdown",
+        )
+
+    async def list_messages(self, devin_id: str) -> list[DevinMessage]:
+        await asyncio.sleep(0.25)
+        return []
+
+    async def terminate_session(self, devin_id: str) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
 
 
 def _post_webhook(
@@ -211,3 +251,40 @@ def test_simulation_is_hidden_outside_development(tmp_path: Path) -> None:
         response = production_client.post("/simulate")
 
     assert response.status_code == 404
+
+
+def test_shutdown_cancels_active_worker_polling(
+    settings: Settings,
+    repository: JobRepository,
+) -> None:
+    job, _ = repository.create_or_get(
+        delivery_id="shutdown-poll",
+        issue_number=43,
+        issue_title="Cancel shutdown polling",
+        issue_body="Body",
+        issue_url="https://github.com/S1LV3RJ1NX/superset/issues/43",
+        repository="S1LV3RJ1NX/superset",
+        simulated=False,
+    )
+    repository.transition(job.id, JobStatus.QUEUED)
+    repository.transition(
+        job.id,
+        JobStatus.SESSION_CREATED,
+        {
+            "devin_id": "devin-shutdown",
+            "devin_url": "https://app.devin.ai/sessions/shutdown",
+        },
+    )
+    repository.transition(job.id, JobStatus.RUNNING)
+    devin_client = BlockingDevinClient()
+    app = create_app(
+        settings=settings,
+        repository=repository,
+        devin_client=devin_client,
+        start_worker=True,
+    )
+
+    with TestClient(app):
+        assert devin_client.poll_started.wait(timeout=1)
+
+    assert devin_client.poll_cancelled.is_set()

@@ -20,6 +20,9 @@ from app.worker import JobWorker
 class SuccessfulDevinClient:
     """Deterministic fake that never performs HTTP requests."""
 
+    def __init__(self) -> None:
+        self.terminated_sessions: list[str] = []
+
     async def create_session(self, issue: IssueContext, tracking_tag: str) -> DevinSession:
         assert issue.repository == "S1LV3RJ1NX/superset"
         assert tracking_tag.startswith("devin-autofix-job-")
@@ -66,6 +69,9 @@ class SuccessfulDevinClient:
             )
         ]
 
+    async def terminate_session(self, devin_id: str) -> None:
+        self.terminated_sessions.append(devin_id)
+
 
 class ReconcilingDevinClient:
     """Fake that exposes a created session through its durable tracking tag."""
@@ -99,6 +105,9 @@ class ReconcilingDevinClient:
 
     async def list_messages(self, devin_id: str) -> list[DevinMessage]:
         return []
+
+    async def terminate_session(self, devin_id: str) -> None:
+        return None
 
 
 class UnexpectedCompletionDevinClient(SuccessfulDevinClient):
@@ -148,11 +157,87 @@ class StructuredPullRequestDevinClient(SuccessfulDevinClient):
         )
 
 
+class FailingTerminationDevinClient(SuccessfulDevinClient):
+    """Fake that cannot terminate an active session."""
+
+    async def terminate_session(self, devin_id: str) -> None:
+        raise RuntimeError("termination unavailable")
+
+
 class ReconciliationOnlyDevinClient(SuccessfulDevinClient):
     """Fake that fails if the worker attempts a second paid create call."""
 
     async def create_session(self, issue: IssueContext, tracking_tag: str) -> DevinSession:
         raise AssertionError("duplicate create_session call")
+
+
+def test_worker_run_recovers_after_cycle_failure(
+    settings: Settings,
+    repository: JobRepository,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worker = JobWorker(settings, repository, SuccessfulDevinClient())
+    calls = 0
+
+    async def fail_once_then_stop() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("temporary repository failure")
+        worker.stop()
+
+    monkeypatch.setattr(worker, "run_once", fail_once_then_stop)
+
+    asyncio.run(asyncio.wait_for(worker.run(), timeout=1))
+
+    assert calls == 2
+
+
+def test_worker_isolates_transition_failure_to_one_job(
+    settings: Settings,
+    repository: JobRepository,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    failed_job, _ = repository.create_or_get(
+        delivery_id="failed-transition",
+        issue_number=86,
+        issue_title="Fail one transition",
+        issue_body="Body",
+        issue_url="https://github.com/S1LV3RJ1NX/superset/issues/86",
+        repository="S1LV3RJ1NX/superset",
+        simulated=False,
+    )
+    healthy_job, _ = repository.create_or_get(
+        delivery_id="healthy-transition",
+        issue_number=87,
+        issue_title="Continue after transition failure",
+        issue_body="Body",
+        issue_url="https://github.com/S1LV3RJ1NX/superset/issues/87",
+        repository="S1LV3RJ1NX/superset",
+        simulated=False,
+    )
+    original_transition = repository.transition
+
+    def fail_one_transition(
+        job_id: str,
+        target: JobStatus,
+        fields: Mapping[str, object] | None = None,
+    ) -> Job:
+        if job_id == failed_job.id and target is JobStatus.QUEUED:
+            raise RuntimeError("job-specific transition failure")
+        return original_transition(job_id, target, fields)
+
+    monkeypatch.setattr(repository, "transition", fail_one_transition)
+    worker = JobWorker(settings, repository, SuccessfulDevinClient())
+
+    asyncio.run(worker.run_once())
+
+    failed = repository.get(failed_job.id)
+    advanced = repository.get(healthy_job.id)
+    assert failed is not None
+    assert advanced is not None
+    assert failed.status is JobStatus.RECEIVED
+    assert advanced.status is JobStatus.SUCCEEDED
 
 
 def test_worker_advances_job_to_success(settings: Settings, repository: JobRepository) -> None:
@@ -370,13 +455,52 @@ def test_active_session_times_out_from_session_creation(
     if initial_status is JobStatus.RUNNING:
         repository.transition(job.id, JobStatus.RUNNING)
     monkeypatch.setattr(worker_module, "utc_now", utc_now)
-    worker = JobWorker(settings, repository, SuccessfulDevinClient())
+    devin_client = SuccessfulDevinClient()
+    worker = JobWorker(settings, repository, devin_client)
 
     asyncio.run(worker.run_once())
 
     timed_out = repository.get(job.id)
     assert timed_out is not None
     assert timed_out.status is JobStatus.TIMED_OUT
+    assert devin_client.terminated_sessions == ["devin-timeout"]
+
+
+def test_timeout_remains_active_until_remote_termination_succeeds(
+    settings: Settings,
+    repository: JobRepository,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job, _ = repository.create_or_get(
+        delivery_id="timeout-termination-failure",
+        issue_number=92,
+        issue_title="Retry termination",
+        issue_body="Body",
+        issue_url="https://github.com/S1LV3RJ1NX/superset/issues/92",
+        repository="S1LV3RJ1NX/superset",
+        simulated=False,
+    )
+    repository.transition(job.id, JobStatus.QUEUED)
+    creation_time = utc_now() - timedelta(seconds=settings.session_timeout_seconds + 1)
+    monkeypatch.setattr(database_module, "utc_now", lambda: creation_time)
+    repository.transition(
+        job.id,
+        JobStatus.SESSION_CREATED,
+        {
+            "devin_id": "devin-termination-failure",
+            "devin_url": "https://app.devin.ai/sessions/termination-failure",
+        },
+    )
+    repository.transition(job.id, JobStatus.RUNNING)
+    monkeypatch.setattr(worker_module, "utc_now", utc_now)
+    worker = JobWorker(settings, repository, FailingTerminationDevinClient())
+
+    asyncio.run(worker.run_once())
+
+    active = repository.get(job.id)
+    assert active is not None
+    assert active.status is JobStatus.RUNNING
+    assert active.error == "Devin session termination failed: termination unavailable"
 
 
 def test_simulated_jobs_are_never_sent_to_devin(

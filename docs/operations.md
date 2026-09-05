@@ -49,7 +49,17 @@ a unique job tag. After a lost response or database write failure, the worker
 reconciles that tag instead of creating another paid session. If no session can
 be found before `SESSION_TIMEOUT_SECONDS`, the job moves to
 `needs_human_input`; an operator must inspect Devin and the job before deciding
-whether to submit a new GitHub delivery. Polling errors remain terminal in v1.
+whether to submit a new GitHub delivery.
+
+Worker-cycle and individual-job orchestration failures are logged without
+terminating the background task. Polling errors remain terminal in v1. When an
+active session exceeds `SESSION_TIMEOUT_SECONDS`, the worker calls the v3
+termination endpoint before recording `timed_out`. A failed termination leaves
+the job active so the worker retries rather than losing visibility of remote
+work.
+
+Application shutdown signals and cancels the worker task, interrupting active
+HTTP polling before the Devin client is closed.
 
 Back up the SQLite volume before destructive infrastructure changes.
 

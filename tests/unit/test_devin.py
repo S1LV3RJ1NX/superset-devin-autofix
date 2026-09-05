@@ -110,6 +110,39 @@ def test_find_session_by_tracking_tag(tmp_path: Path) -> None:
     assert requests[0].url.params["first"] == "1"
 
 
+def test_terminate_session_uses_v3_organization_api(tmp_path: Path) -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "session_id": "devin-123",
+                "status": "exit",
+                "url": "https://app.devin.ai/sessions/123",
+                "pull_requests": [],
+            },
+        )
+
+    settings = Settings(
+        database_path=tmp_path / "jobs.sqlite3",
+        devin_api_key="secret-key",
+        devin_org_id="org-123",
+    )
+    http_client = httpx.AsyncClient(
+        base_url="https://api.devin.ai", transport=httpx.MockTransport(handler)
+    )
+    client = DevinClient(settings, http_client)
+
+    asyncio.run(client.terminate_session("devin-123"))
+    asyncio.run(http_client.aclose())
+
+    assert len(requests) == 1
+    assert requests[0].method == "DELETE"
+    assert requests[0].url.path == "/v3/organizations/org-123/sessions/devin-123"
+
+
 def test_poll_status_and_paginated_messages(tmp_path: Path) -> None:
     message_calls = 0
 
