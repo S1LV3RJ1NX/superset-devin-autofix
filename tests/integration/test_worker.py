@@ -220,6 +220,27 @@ class ReconciliationOnlyDevinClient(SuccessfulDevinClient):
         raise AssertionError("duplicate create_session call")
 
 
+class TransientPollingFailureDevinClient(SuccessfulDevinClient):
+    """Fake whose first session read fails before a successful retry."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.session_reads = 0
+
+    async def get_session(self, devin_id: str) -> DevinSession:
+        self.session_reads += 1
+        if self.session_reads == 1:
+            raise RuntimeError("poll unavailable")
+        return await super().get_session(devin_id)
+
+
+class FailingReconciliationDevinClient(ReconciliationOnlyDevinClient):
+    """Fake whose tracking-tag lookup remains unavailable."""
+
+    async def find_session_by_tag(self, tracking_tag: str) -> DevinSession | None:
+        raise RuntimeError("lookup unavailable")
+
+
 def test_worker_run_recovers_after_cycle_failure(
     settings: Settings,
     repository: JobRepository,
@@ -439,6 +460,130 @@ def test_worker_refuses_duplicate_create_when_first_request_cannot_be_reconciled
     assert unresolved.status is JobStatus.NEEDS_HUMAN_INPUT
     assert unresolved.devin_id is None
     assert unresolved.attempts == 1
+
+
+def test_polling_failure_keeps_session_active_for_retry(
+    settings: Settings,
+    repository: JobRepository,
+) -> None:
+    job, _ = repository.create_or_get(
+        delivery_id="transient-poll-failure",
+        issue_number=90,
+        issue_title="Retry session polling",
+        issue_body="Body",
+        issue_url="https://github.com/S1LV3RJ1NX/superset/issues/90",
+        repository="S1LV3RJ1NX/superset",
+        simulated=False,
+    )
+    repository.transition(job.id, JobStatus.QUEUED)
+    repository.transition(
+        job.id,
+        JobStatus.SESSION_CREATED,
+        {
+            "devin_id": "devin-worker",
+            "devin_url": "https://app.devin.ai/sessions/worker",
+        },
+    )
+    repository.transition(job.id, JobStatus.RUNNING)
+    devin_client = TransientPollingFailureDevinClient()
+    worker = JobWorker(settings, repository, devin_client)
+
+    asyncio.run(worker.run_once())
+
+    retryable = repository.get(job.id)
+    assert retryable is not None
+    assert retryable.status is JobStatus.RUNNING
+    assert retryable.error == "Devin session polling failed: poll unavailable"
+
+    asyncio.run(worker.run_once())
+
+    completed = repository.get(job.id)
+    assert completed is not None
+    assert completed.status is JobStatus.SUCCEEDED
+    assert devin_client.session_reads == 2
+    assert devin_client.terminated_sessions == []
+
+
+def test_reconciled_session_timeout_uses_original_request_time(
+    settings: Settings,
+    repository: JobRepository,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job, _ = repository.create_or_get(
+        delivery_id="reconciled-session-timeout",
+        issue_number=91,
+        issue_title="Preserve reconciliation deadline",
+        issue_body="Body",
+        issue_url="https://github.com/S1LV3RJ1NX/superset/issues/91",
+        repository="S1LV3RJ1NX/superset",
+        simulated=False,
+    )
+    repository.transition(job.id, JobStatus.QUEUED)
+    repository.update_runtime(
+        job.id,
+        {
+            "attempts": 1,
+            "session_requested_at": (
+                utc_now() - timedelta(seconds=settings.session_timeout_seconds + 1)
+            ),
+        },
+    )
+    repository.transition(
+        job.id,
+        JobStatus.SESSION_CREATED,
+        {
+            "devin_id": "devin-worker",
+            "devin_url": "https://app.devin.ai/sessions/worker",
+        },
+    )
+    repository.transition(job.id, JobStatus.RUNNING)
+    monkeypatch.setattr(worker_module, "utc_now", utc_now)
+    devin_client = ActiveSessionDevinClient()
+    worker = JobWorker(settings, repository, devin_client)
+
+    asyncio.run(worker.run_once())
+
+    timed_out = repository.get(job.id)
+    assert timed_out is not None
+    assert timed_out.status is JobStatus.TIMED_OUT
+    assert devin_client.terminated_sessions == ["devin-worker"]
+
+
+def test_reconciliation_failure_honors_original_request_deadline(
+    settings: Settings,
+    repository: JobRepository,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job, _ = repository.create_or_get(
+        delivery_id="reconciliation-timeout",
+        issue_number=91,
+        issue_title="Stop uncertain reconciliation",
+        issue_body="Body",
+        issue_url="https://github.com/S1LV3RJ1NX/superset/issues/91",
+        repository="S1LV3RJ1NX/superset",
+        simulated=False,
+    )
+    repository.transition(job.id, JobStatus.QUEUED)
+    repository.update_runtime(
+        job.id,
+        {
+            "attempts": 1,
+            "session_requested_at": (
+                utc_now() - timedelta(seconds=settings.session_timeout_seconds + 1)
+            ),
+        },
+    )
+    monkeypatch.setattr(worker_module, "utc_now", utc_now)
+    worker = JobWorker(settings, repository, FailingReconciliationDevinClient())
+
+    asyncio.run(worker.run_once())
+
+    unresolved = repository.get(job.id)
+    assert unresolved is not None
+    assert unresolved.status is JobStatus.NEEDS_HUMAN_INPUT
+    assert unresolved.error is not None
+    assert "reconciliation failed: lookup unavailable" in unresolved.error
+    assert "deadline exceeded" in unresolved.error
 
 
 def test_pr_does_not_override_unrecognized_structured_status(

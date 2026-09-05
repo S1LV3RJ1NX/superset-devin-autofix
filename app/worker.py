@@ -149,10 +149,20 @@ class JobWorker:
             session = await self.devin_client.find_session_by_tag(tracking_tag)
         except Exception as exc:
             logger.exception("failed to reconcile Devin session for job_id=%s", job.id)
-            self.repository.update_runtime(
-                job.id,
-                {"error": f"Devin session reconciliation failed: {_safe_error(exc)}"},
-            )
+            error = f"Devin session reconciliation failed: {_safe_error(exc)}"
+            if self._has_timed_out(job.session_requested_at):
+                self.repository.transition(
+                    job.id,
+                    JobStatus.NEEDS_HUMAN_INPUT,
+                    {
+                        "error": (
+                            f"{error}; reconciliation deadline exceeded with "
+                            "the creation outcome still unknown"
+                        )
+                    },
+                )
+            else:
+                self.repository.update_runtime(job.id, {"error": error})
             return
 
         if session is not None:
@@ -190,7 +200,7 @@ class JobWorker:
                 self.devin_client.get_session(job.devin_id),
                 self.devin_client.list_messages(job.devin_id),
             )
-            fields: dict[str, object] = {}
+            fields: dict[str, object] = {"error": None}
             if session.structured_output is not None:
                 fields["structured_output"] = session.structured_output
             if session.pr_url and not job.pr_url:
@@ -205,10 +215,15 @@ class JobWorker:
                 return
         except Exception as exc:
             logger.exception("failed to poll Devin session for job_id=%s", job.id)
-            self.repository.transition(job.id, JobStatus.FAILED, {"error": _safe_error(exc)})
+            self.repository.update_runtime(
+                job.id,
+                {"error": f"Devin session polling failed: {_safe_error(exc)}"},
+            )
             return
 
-        if self._has_timed_out(job.session_created_at or job.started_at):
+        if self._has_timed_out(
+            job.session_requested_at or job.session_created_at or job.started_at
+        ):
             await self._terminate_timed_out_session(job)
 
     async def _terminate_timed_out_session(self, job: Job) -> None:
@@ -298,6 +313,7 @@ def _session_fields(session: DevinSession) -> dict[str, object]:
     fields: dict[str, object] = {
         "devin_id": session.session_id,
         "devin_url": session.url,
+        "error": None,
     }
     if session.pr_url:
         fields["pr_url"] = session.pr_url

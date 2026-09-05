@@ -46,6 +46,8 @@ make test-unit
   cancellation of active polling during shutdown.
 - Preservation of remote completion output and PR metadata after an overdue
   polling gap.
+- Retryable polling failures and enforcement of the original request deadline
+  across delayed or failing reconciliation.
 - The complete webhook-to-worker-to-jobs/metrics path.
 
 Run with:

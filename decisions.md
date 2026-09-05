@@ -194,7 +194,10 @@ Stopping local polling without stopping remote work would allow unobserved
 spend and pull requests. Checking current state first prevents sessions that
 completed during a polling gap from becoming false timeouts.
 
-**Consequence:** Failed termination attempts leave the job active with an error
-and are retried on later worker cycles. Per-job failures are logged and do not
-block unrelated jobs, while broad repository-read failures defer the cycle
-without killing the long-running worker.
+**Consequence:** Polling and failed termination attempts leave the job active
+with an error and are retried on later worker cycles. The timeout remains
+anchored to the original session request across reconciliation delays, and an
+unknown creation outcome becomes `needs_human_input` when that deadline expires.
+Per-job failures are logged and do not block unrelated jobs, while broad
+repository-read failures defer the cycle without killing the long-running
+worker.

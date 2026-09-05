@@ -174,7 +174,8 @@ Each request also carries a unique job tag. The worker records request intent
 before the external call and reconciles by that tag after an uncertain outcome
 instead of issuing a second paid session. Reconciliation paginates candidates,
 verifies exact tag membership locally, and rejects ambiguous matches rather
-than trusting API result order. When the configured timeout expires, the worker
+than trusting API result order. The timeout is measured from the original
+session request, including reconciliation delays. When it expires, the worker
 first observes the latest remote state so completion output and PR metadata are
 preserved, then terminates only a still-active session before marking the job
 timed out. No test calls the real Devin API.
@@ -198,10 +199,11 @@ test calls the real Devin API.
 
 - The background worker is designed for one service replica; distributed
   leasing is not implemented.
-- Polling errors are terminal rather than retried with backoff. Worker-cycle
-  and per-job orchestration failures are logged and retried on later cycles.
-  An uncertain creation outcome is reconciled by job tag and escalated for
-  human review if no session appears before the configured timeout.
+- Polling errors keep jobs active for later retries, but retry backoff is not
+  implemented. Worker-cycle and per-job orchestration failures are logged and
+  retried on later cycles. An uncertain creation outcome is reconciled by job
+  tag and escalated for human review when lookup remains unavailable or no
+  session appears before the configured timeout.
 - SQLite is local to one deployment and has no external backup automation.
 - `/metrics` and `/health` remain unauthenticated; use trusted ingress if
   operational metrics should not be public.
