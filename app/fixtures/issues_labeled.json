@@ -1,0 +1,15 @@
+{
+  "action": "labeled",
+  "label": {
+    "name": "devin-autofix"
+  },
+  "issue": {
+    "number": 123,
+    "title": "Example remediation request",
+    "body": "This fixture exercises the webhook-to-job path without creating a Devin session.",
+    "html_url": "https://github.com/S1LV3RJ1NX/superset/issues/123"
+  },
+  "repository": {
+    "full_name": "S1LV3RJ1NX/superset"
+  }
+}

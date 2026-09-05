@@ -1,0 +1,163 @@
+# Superset Devin Autofix Control Plane
+
+A small, Dockerized FastAPI service that turns an authenticated GitHub
+`issues.labeled` webhook into a durable Devin remediation job for
+`S1LV3RJ1NX/superset`.
+
+The service creates and observes Devin sessions. It has no merge endpoint and
+never merges or auto-merges pull requests.
+
+## Architecture
+
+```text
+GitHub webhook
+  -> HMAC verification and event filtering
+  -> SQLite delivery deduplication and job state machine
+  -> background worker
+  -> Devin v3 Organization Sessions API
+  -> JSON job and aggregate metrics endpoints
+```
+
+The boundaries are intentionally small:
+
+- `app/main.py`: HTTP routes and application lifecycle.
+- `app/github.py`: webhook authentication and issues.labeled parsing.
+- `app/service.py`: idempotent webhook-to-job workflow.
+- `app/database.py`: SQLite schema, queries, and guarded transitions.
+- `app/devin.py`: typed client for the v3 Organization Sessions API.
+- `app/worker.py`: session creation, polling, timeout, and terminal-state mapping.
+
+Jobs move through:
+
+```text
+received -> queued -> session_created -> running
+                                      -> succeeded
+                                      -> failed
+                                      -> timed_out
+                                      -> needs_human_input
+```
+
+Each job records its GitHub delivery and issue, timestamps, simulation marker,
+Devin session ID/URL, latest Devin message, structured completion output,
+eventual PR URL, and elapsed time to the first observed PR.
+
+## Configuration
+
+Copy the existing example and supply secrets only in your local environment:
+
+```bash
+cp .env.example .env
+```
+
+Required for webhook intake:
+
+- `GITHUB_WEBHOOK_SECRET`
+
+Required for real session creation:
+
+- `DEVIN_API_KEY`
+- `DEVIN_ORG_ID` (an ID with the `org-` prefix)
+
+Important optional settings:
+
+- `APP_ENV`: set to `development` to enable `POST /simulate`.
+- `DATABASE_PATH`: defaults to `data/control-plane.sqlite3` outside Compose.
+- `TARGET_REPOSITORY`: defaults to `S1LV3RJ1NX/superset`.
+- `POLL_INTERVAL_SECONDS`: defaults to `10`.
+- `SESSION_TIMEOUT_SECONDS`: defaults to `3600`.
+- `WORKER_ENABLED`: defaults to `true`.
+
+`GITHUB_TOKEN` remains reserved for future GitHub status/comment updates and is
+not used by this version.
+
+## Run
+
+### Docker Compose
+
+```bash
+docker compose up --build
+```
+
+### Local Python
+
+Python 3.11 is required.
+
+```bash
+make install
+make run
+```
+
+The service listens on port `8000`.
+
+## Endpoints
+
+### `POST /webhooks/github`
+
+GitHub should send:
+
+- `X-Hub-Signature-256`
+- `X-GitHub-Delivery`
+- `X-GitHub-Event: issues`
+
+Only an `issues.labeled` event with the configured `devin-autofix` label and
+target repository creates a job. Repeated delivery IDs return the original job
+without creating another session.
+
+### `GET /jobs`
+
+Lists jobs newest first. `?include_simulated=false` hides development
+simulations.
+
+### `GET /metrics`
+
+Returns real-job counts for tasks started, active tasks, each terminal status,
+completion rate, PR count, and average elapsed seconds to PR. It also reports
+the separate simulated-job count.
+
+### `POST /simulate`
+
+Available only with `APP_ENV=development`. With no body, it replays
+`app/fixtures/issues_labeled.json` through the same signature verification,
+filtering, deduplication, persistence, and queueing path:
+
+```bash
+curl -X POST http://localhost:8000/simulate \
+  -H "Content-Type: application/json" \
+  -d '{"delivery_id":"local-example-1"}'
+```
+
+The resulting job is explicitly marked `simulated`. The worker excludes
+simulated jobs, and the response explicitly reports that no external Devin
+session or pull request was created.
+
+## Devin session contract
+
+The client uses only the current v3 organization endpoints:
+
+- `POST /v3/organizations/{org_id}/sessions`
+- `GET /v3/organizations/{org_id}/sessions/{devin_id}`
+- `GET /v3/organizations/{org_id}/sessions/{devin_id}/messages`
+
+The creation request scopes Devin to the target repository and issue, requires
+focused tests plus changed-file pre-commit validation, forbids credential
+exposure and auto-merge, and requires JSON-schema-validated completion output.
+No test calls the real Devin API.
+
+## Validation
+
+```bash
+make check
+docker build -t superset-devin-autofix .
+docker compose config
+```
+
+## Version 1 limitations
+
+- The background worker is designed for one service replica; distributed
+  leasing is not implemented.
+- Devin API errors are terminal rather than retried with backoff.
+- SQLite is local to one deployment and has no external backup automation.
+- Read endpoints and development simulation do not include service-level
+  authentication; deploy behind trusted ingress and keep simulation disabled
+  outside development.
+- GitHub status comments and checks are not written in this version.
