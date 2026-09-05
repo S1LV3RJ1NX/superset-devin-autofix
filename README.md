@@ -39,17 +39,16 @@ The boundaries are intentionally small:
 Jobs move through:
 
 ```text
-received -> queued -> session_created -> running
-           |                          -> succeeded
-           |                          -> failed
-           |                          -> timed_out
-           +------------------------> needs_human_input
+received -> queued
+queued -> session_created | failed | needs_human_input
+session_created -> running
+running -> succeeded | failed | timed_out | needs_human_input
 ```
 
 Each job records its GitHub delivery and issue, timestamps, simulation marker,
-session-request timestamp, Devin session ID/URL, latest Devin message,
-structured completion output, eventual PR URL, and elapsed time to the first
-observed PR.
+session-request timestamp, Devin session ID/URL, latest observed Devin-authored
+message, structured completion output, observed PR URL, and elapsed time to the
+first observed PR.
 
 ## Configuration
 
@@ -59,7 +58,7 @@ Copy the existing example and supply secrets only in your local environment:
 cp .env.example .env
 ```
 
-Required for webhook intake:
+Required for webhook intake and development simulation:
 
 - `GITHUB_WEBHOOK_SECRET`
 
@@ -80,7 +79,9 @@ Important optional settings:
 
 - `APP_ENV`: set to `development` to enable `POST /simulate`.
 - `DATABASE_PATH`: defaults to `data/control-plane.sqlite3` outside Compose.
+- `DEVIN_API_BASE_URL`: defaults to `https://api.devin.ai`.
 - `TARGET_REPOSITORY`: defaults to `S1LV3RJ1NX/superset`.
+- `AUTOFIX_LABEL`: defaults to `devin-autofix`.
 - `POLL_INTERVAL_SECONDS`: defaults to `10`.
 - `SESSION_TIMEOUT_SECONDS`: defaults to `3600`.
 - `WORKER_ENABLED`: defaults to `true`.
@@ -99,8 +100,8 @@ docker compose up --build
 ### Local development
 
 Python 3.13 and [uv](https://docs.astral.sh/uv/) are required. The committed
-`.python-version` and `uv.lock` keep the interpreter and dependencies
-reproducible.
+`.python-version` selects the Python 3.13 series, and `uv.lock` locks the
+dependency graph.
 
 ```bash
 make install
@@ -108,7 +109,10 @@ make hooks
 make run
 ```
 
-The service listens on port `8000`.
+The service listens on port `8000`. Docker Compose reads `.env` automatically;
+local `make run` reads the process environment instead. Export the required
+variables in the shell, and leave `DATABASE_PATH` unset or set it to a writable
+local path such as `data/control-plane.sqlite3`.
 
 ## Endpoints
 
@@ -205,12 +209,13 @@ test calls the real Devin API.
 
 - The background worker is designed for one service replica; distributed
   leasing is not implemented.
-- Polling errors keep jobs active for later retries, but retry backoff is not
-  implemented. Worker-cycle and per-job orchestration failures are logged and
-  retried on later cycles. An uncertain creation outcome is reconciled by job
-  tag and escalated for human review when lookup remains unavailable or no
-  session appears before the configured timeout. Missing Devin credentials fail
-  before reconciliation because no external request was attempted.
+- Status-polling errors before the deadline keep jobs active for later retries,
+  but retry backoff is not implemented. Worker-cycle and per-job orchestration
+  failures are logged and retried on later cycles. An uncertain creation
+  outcome is reconciled by job tag and escalated for human review when lookup
+  remains unavailable or no session appears before the configured timeout.
+  Missing Devin credentials fail before reconciliation because no external
+  request was attempted.
 - SQLite is local to one deployment and has no external backup automation.
 - `/metrics` and `/health` remain unauthenticated; use trusted ingress if
   operational metrics should not be public.

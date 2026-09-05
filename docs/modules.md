@@ -47,12 +47,13 @@ session request intent before the external call, reconciles uncertain outcomes
 without duplicate creates, recovers received jobs, persists session metadata,
 messages, structured output, and PR URLs, maps remote states to terminal job
 states, isolates cycle and per-job failures, preserves completions observed
-after polling gaps, and keeps transient polling failures retryable. Known
-pre-request configuration failures fail immediately, while legacy creation
-attempts use their durable update time as a fallback reconciliation deadline.
-Still-active remote work is terminated before recording a timeout. Session
-status remains actionable when optional message retrieval fails; overdue
-sessions with unreadable status are terminated and escalated for human review.
+after polling gaps, and keeps transient status-polling failures retryable.
+Known pre-request configuration failures fail immediately, while legacy
+creation attempts use their durable update time as a fallback reconciliation
+deadline. Still-active remote work is terminated before recording a timeout.
+Session status remains actionable when optional message retrieval fails;
+overdue sessions with unreadable status are terminated and escalated for human
+review.
 
 ## `app.main`
 
@@ -62,7 +63,7 @@ simulation routes; enforces operator bearer authentication for job data and
 simulation; cancels active worker requests during shutdown; and closes
 background resources.
 
-## `app.fixtures`
+## `app/fixtures`
 
 Contains packaged development simulation payloads. Fixtures must remain safe,
 deterministic, and free of credentials.

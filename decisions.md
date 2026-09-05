@@ -58,8 +58,8 @@ service.
 
 ## D006: Use only the Devin v3 Organization Sessions API
 
-**Decision:** Create, poll, and read messages through
-`/v3/organizations/{org_id}/sessions`.
+**Decision:** Create, reconcile, poll, read messages, and terminate sessions
+through `/v3/organizations/{org_id}/sessions`.
 
 **Why:** V3 is the supported organization-scoped API and provides structured
 completion output.
@@ -96,8 +96,8 @@ real session or PR.
 
 **Why:** It keeps deployment small while supporting durable restart recovery.
 
-**Consequence:** API and worker scaling are coupled. Retries, distributed
-leases, and exponential backoff are deferred.
+**Consequence:** API and worker scaling are coupled. Distributed leases, retry
+backoff, and attempt limits are deferred.
 
 ## D010: Use Python 3.13 and uv
 
@@ -105,12 +105,13 @@ leases, and exponential backoff are deferred.
 and manage environments and the lockfile with uv.
 
 **Why:** One tool provides fast interpreter selection, deterministic dependency
-resolution, isolated command execution, and reproducible container installs.
+resolution, isolated command execution, and reproducible dependency installs.
 
-**Consequence:** Contributors use `uv sync --frozen` and commit `uv.lock`;
-direct pip-managed development environments are unsupported. Resolution uses
-an `exclude-newer` cutoff so releases have at least a seven-day observation
-window before entering the lockfile.
+**Consequence:** Contributors use `uv sync --all-groups --frozen`, production
+containers use `uv sync --frozen --no-dev`, and both commit `uv.lock`; direct
+pip-managed development environments are unsupported. Resolution uses a fixed
+`exclude-newer` cutoff that maintainers advance deliberately after the intended
+package observation period.
 
 ## D011: Enforce layered tests with pre-commit
 
@@ -194,16 +195,16 @@ Stopping local polling without stopping remote work would allow unobserved
 spend and pull requests. Checking current state first prevents sessions that
 completed during a polling gap from becoming false timeouts.
 
-**Consequence:** Polling and failed termination attempts leave the job active
-with an error and are retried on later worker cycles. The timeout remains
-anchored to the original session request across reconciliation delays, and an
-unknown creation outcome becomes `needs_human_input` when that deadline expires.
-Session status is applied independently of message retrieval. An overdue
-session with unreadable status is terminated and marked `needs_human_input`
-rather than reported as a known timeout or left running without observation.
-Per-job failures are logged and do not block unrelated jobs, while broad
-repository-read failures defer the cycle without killing the long-running
-worker.
+**Consequence:** Status-polling failures before the deadline and failed
+termination attempts leave the job active with an error and are retried on
+later worker cycles. The timeout remains anchored to the original session
+request across reconciliation delays, and an unknown creation outcome becomes
+`needs_human_input` when that deadline expires. Session status is applied
+independently of message retrieval. An overdue session with unreadable status
+is terminated and marked `needs_human_input` rather than reported as a known
+timeout or left running without observation. Per-job failures are logged and do
+not block unrelated jobs, while broad repository-read failures defer the cycle
+without killing the long-running worker.
 
 ## D017: Separate known pre-request failures from uncertain creation
 

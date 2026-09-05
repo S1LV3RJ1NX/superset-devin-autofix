@@ -3,9 +3,10 @@
 ## Configuration
 
 Copy `.env.example` to `.env` and provide secrets outside version control.
-Required webhook configuration is `GITHUB_WEBHOOK_SECRET`. Real Devin work also
-requires `DEVIN_API_KEY` and `DEVIN_ORG_ID`. Set `CONTROL_PLANE_API_KEY` to a
-random secret used as the bearer token for `/jobs` and `/simulate`.
+Webhook intake and development simulation require `GITHUB_WEBHOOK_SECRET`. Real
+Devin work also requires `DEVIN_API_KEY` and `DEVIN_ORG_ID`. Set
+`CONTROL_PLANE_API_KEY` to a random secret used as the bearer token for `/jobs`
+and `/simulate`.
 
 The Devin service user needs `ManageOrgSessions` to create sessions and
 `ViewOrgSessions` to reconcile and poll them.
@@ -28,15 +29,15 @@ The service listens on port 8000 and stores SQLite data in the
 ## Observability
 
 - `/health` reports process availability.
-- `/jobs` exposes durable state, Devin session URLs, last messages, structured
-  output, PR URLs, errors, and timestamps. It requires
-  `Authorization: Bearer $CONTROL_PLANE_API_KEY`.
+- `/jobs` exposes durable state, Devin session URLs, the latest observed
+  Devin-authored message, structured output, PR URLs, errors, and timestamps.
+  It requires `Authorization: Bearer $CONTROL_PLANE_API_KEY`.
 - `/metrics` exposes task counts, terminal outcomes, completion rate, and
   elapsed PR timing. PR count and timing include all production jobs with an
   observed PR, while completion rate counts only structured successful
   outcomes.
-- Structured application logs include delivery and job identifiers but not
-  secrets or raw authorization headers.
+- Application logs include delivery and job identifiers but not secrets or raw
+  authorization headers.
 
 ## Recovery
 
@@ -58,18 +59,19 @@ must inspect Devin and the job before deciding whether to submit a new GitHub
 delivery.
 
 Worker-cycle and individual-job orchestration failures are logged without
-terminating the background task. Polling errors keep the job active with an
-operator-visible error so a later cycle can retry. Timeout is measured from the
-original session request, not a later reconciliation timestamp. Persistent
-reconciliation failures become `needs_human_input` when that deadline expires.
-For an active session, the worker first reads its latest remote state. Message
-retrieval failure does not block applying that state or enforcing the deadline.
-A session that completed during a polling gap keeps its structured result and
-PR metadata. A session that remains active is terminated through the v3 API
-before the job records `timed_out`. If status itself cannot be read after the
-deadline, the worker terminates the session and records `needs_human_input`
-rather than inventing a result. A failed termination leaves the job active so
-the worker retries rather than losing visibility of remote work.
+terminating the background task. Status-polling errors before the deadline keep
+the job active with an operator-visible error so a later cycle can retry.
+Timeout is measured from the original session request, not a later
+reconciliation timestamp. Persistent reconciliation failures become
+`needs_human_input` when that deadline expires. For an active session, the
+worker first reads its latest remote state. Message retrieval failure does not
+block applying that state or enforcing the deadline. A session that completed
+during a polling gap keeps its structured result and PR metadata. A session
+that remains active is terminated through the v3 API before the job records
+`timed_out`. If status itself cannot be read after the deadline, the worker
+terminates the session and records `needs_human_input` rather than inventing a
+result. A failed termination leaves the job active so the worker retries rather
+than losing visibility of remote work.
 
 Application shutdown signals and cancels the worker task, interrupting active
 HTTP polling before the Devin client is closed.

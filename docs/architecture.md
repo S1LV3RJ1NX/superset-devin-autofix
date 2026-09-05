@@ -28,17 +28,18 @@ boundaries injectable in tests.
 ## State model
 
 ```text
-received -> queued -> session_created -> running
-           |                          -> succeeded
-           |                          -> failed
-           |                          -> timed_out
-           +------------------------> needs_human_input
+received -> queued
+queued -> session_created | failed | needs_human_input
+session_created -> running
+running -> succeeded | failed | timed_out | needs_human_input
 ```
 
 Transitions are validated by the repository. Terminal states are immutable.
-The unique GitHub delivery ID is the intake idempotency key. New webhook jobs
-are inserted as queued in one transaction; the worker also recovers received
-rows written by earlier versions.
+The diagram shows transitions exercised by the worker; the repository permits
+additional terminal transitions from active states for guarded recovery. The
+unique GitHub delivery ID is the intake idempotency key. New webhook jobs are
+inserted as queued in one transaction; the worker also recovers received rows
+written by earlier versions.
 
 Before the paid session call, the worker persists `session_requested_at` and a
 single attempt. The request includes a unique job tag. If the process loses the
@@ -51,10 +52,12 @@ durable update as the fallback deadline. An unreconciled request becomes
 `needs_human_input` after the configured timeout, including when repeated
 lookup failures leave the creation outcome unknown.
 
-Session status and messages are polled independently. Status remains
-authoritative when message retrieval fails. An overdue session whose status
-cannot be observed is terminated and marked `needs_human_input`, avoiding both
-unbounded external work and a fabricated completion result.
+Session status and messages are polled independently. The message endpoint's
+chronological pagination is preserved when storing the latest observed
+Devin-authored message. Status remains authoritative when message retrieval
+fails. An overdue session whose status cannot be observed is terminated and
+marked `needs_human_input`, avoiding both unbounded external work and a
+fabricated completion result.
 
 ## Trust boundaries
 

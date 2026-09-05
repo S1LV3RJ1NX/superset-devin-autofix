@@ -26,6 +26,14 @@ uv remove package
 
 Do not edit dependency arrays or `uv.lock` by hand.
 
+## Runtime configuration
+
+Docker Compose loads `.env` through `env_file`. Local `make run` does not load
+that file; export the required variables into the shell before starting the
+service. If `.env` is sourced for local development, change `DATABASE_PATH`
+from the container path `/data/control-plane.sqlite3` to a writable local path
+such as `data/control-plane.sqlite3`.
+
 ## Common commands
 
 ```bash
@@ -55,5 +63,6 @@ configuration that caused the failure.
 
 Runtime and development dependencies are pinned. Prefer established releases
 and regenerate the lockfile through uv rather than editing it manually.
-`tool.uv.exclude-newer` prevents resolution to packages published within the
-project's seven-day supply-chain review window.
+`tool.uv.exclude-newer` is a fixed publication cutoff. Advance it deliberately
+when updating dependencies, after candidate releases have had the intended
+supply-chain observation period.
