@@ -68,7 +68,7 @@ Required for operator endpoints:
 
 Required for real session creation:
 
-- `DEVIN_API_KEY`
+- `DEVIN_API_KEY` (a v3 service-user credential with the `cog_` prefix)
 - `DEVIN_ORG_ID` (an ID with the `org-` prefix)
 
 The Devin service user needs organization-level `ManageOrgSessions` and
@@ -184,10 +184,12 @@ their last durable update as a fallback request deadline. The timeout is
 measured from the original session request, including reconciliation delays.
 When it expires, the worker first observes the latest remote state so completion
 output and PR metadata are preserved, then terminates only a still-active
-session before marking the job timed out. Message-polling failures do not
-discard an observed session state. If an overdue session's status cannot be
-read, the worker terminates it and records `needs_human_input` instead of
-guessing its result. No test calls the real Devin API.
+session before marking the job timed out. Timeout termination intentionally uses
+the v3 default `archive=false`, so the terminated session cannot be resumed.
+Message-polling failures do not discard an observed session state. If an overdue
+session's status cannot be read, the worker terminates it and records
+`needs_human_input` instead of guessing its result. No test calls the real Devin
+API.
 
 ## Validation
 
