@@ -4,6 +4,10 @@
 engineering leaders. It reads live durable SQLite state; it does not use mock
 data or call another control-plane endpoint.
 
+> **Demo-only operator console — not suitable for public deployment.**
+> Expandable details expose raw workflow traces from persisted Devin updates,
+> completion summaries, validation, limitations, and operator notes.
+
 ## Data shown
 
 Summary cards use the existing repository metric calculation:
@@ -43,11 +47,15 @@ The page provides:
 Dynamic text is HTML-escaped. Links are rendered only for valid HTTP or HTTPS
 URLs; malformed persisted URLs are omitted instead of failing the page.
 Issue bodies, delivery IDs, internal job IDs, arbitrary structured output, and
-credentials are not rendered.
+credentials are not rendered. Escaping protects HTML rendering but does not
+redact sensitive content from the selected workflow traces.
 
 ## Access boundary
 
 The dashboard intentionally follows the existing unauthenticated observability
-boundary used by `/metrics` and `/health`; it does not add a new authentication
-mechanism. Protect `/dashboard` with trusted ingress when operational data
-should not be public.
+boundary used by `/metrics` and `/health`; it does not add authentication or
+authorization. Keep `/dashboard` behind trusted ingress for controlled demos.
+
+Production readiness requires, at minimum, authenticated access with RBAC,
+field-level redaction and data classification for workflow traces, and reviewed
+retention and audit controls.
