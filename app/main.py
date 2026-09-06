@@ -12,9 +12,11 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import FastAPI, Header, HTTPException, Request, status
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, ValidationError
 
 from app.config import Settings
+from app.dashboard import render_dashboard, render_dashboard_error
 from app.database import JobRepository
 from app.devin import DevinClient
 from app.github import WebhookAuthenticationError, sign_payload
@@ -144,6 +146,29 @@ def create_app(
     @app.get("/metrics")
     async def metrics() -> dict[str, object]:
         return resolved_repository.metrics()
+
+    @app.get("/dashboard", response_class=HTMLResponse)
+    async def dashboard() -> HTMLResponse:
+        headers = {
+            "Cache-Control": "no-store",
+            "Content-Security-Policy": (
+                "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; "
+                "form-action 'none'; frame-ancestors 'none'"
+            ),
+            "Referrer-Policy": "no-referrer",
+            "X-Content-Type-Options": "nosniff",
+        }
+        try:
+            dashboard_metrics, latest_job = resolved_repository.dashboard_snapshot()
+            dashboard_content = render_dashboard(dashboard_metrics, latest_job)
+        except Exception:
+            logger.exception("failed to load operator dashboard data")
+            return HTMLResponse(
+                render_dashboard_error(),
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                headers=headers,
+            )
+        return HTMLResponse(dashboard_content, headers=headers)
 
     @app.post("/simulate")
     async def simulate(

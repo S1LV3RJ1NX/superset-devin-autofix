@@ -16,6 +16,7 @@ never merges or auto-merges pull requests.
 - [Application modules](docs/modules.md)
 - [Development with Python 3.13 and uv](docs/development.md)
 - [Testing strategy](docs/testing.md)
+- [Operator dashboard](docs/dashboard.md)
 - [Operations](docs/operations.md)
 - [Decision log](decisions.md)
 
@@ -27,7 +28,7 @@ GitHub webhook
   -> SQLite delivery deduplication and job state machine
   -> background worker
   -> Devin v3 Organization Sessions API
-  -> JSON job and aggregate metrics endpoints
+  -> JSON operator endpoints and server-rendered dashboard
 ```
 
 The boundaries are intentionally small:
@@ -36,6 +37,7 @@ The boundaries are intentionally small:
 - `app/github.py`: webhook authentication and issues.labeled parsing.
 - `app/service.py`: idempotent webhook-to-job workflow.
 - `app/database.py`: SQLite schema, queries, and guarded transitions.
+- `app/dashboard.py`: sanitized, server-rendered operator presentation.
 - `app/devin.py`: typed client for the v3 Organization Sessions API.
 - `app/worker.py`: session creation, polling, timeout, and terminal-state mapping.
 
@@ -79,6 +81,10 @@ collection, and shutdown steps.
 Read [Control-plane API and Devin session contract](docs/api.md) for webhook,
 operator, metrics, simulation, and Devin v3 session details.
 
+Open `GET /dashboard` for the lightweight operator view. See
+[Operator dashboard](docs/dashboard.md) for its data, behavior, and deployment
+boundary.
+
 ## Validation
 
 ```bash
@@ -107,6 +113,6 @@ test calls the real Devin API.
   Missing Devin credentials fail before reconciliation because no external
   request was attempted.
 - SQLite is local to one deployment and has no external backup automation.
-- `/metrics` and `/health` remain unauthenticated; use trusted ingress if
-  operational metrics should not be public.
+- `/dashboard`, `/metrics`, and `/health` remain unauthenticated; use trusted
+  ingress if operational data should not be public.
 - GitHub status comments and checks are not written in this version.

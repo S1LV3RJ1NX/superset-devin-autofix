@@ -31,6 +31,12 @@ the separate simulated-job count. PR count and elapsed time include every
 production job with an observed PR, regardless of its eventual terminal status;
 completion rate is based only on structured `succeeded` outcomes.
 
+### `GET /dashboard`
+
+Returns the server-rendered operator view. See
+[Operator dashboard](dashboard.md) for its data, refresh, sanitization, and
+access boundary.
+
 ### `POST /simulate`
 
 Available only with `APP_ENV=development`. With no body, it replays

@@ -36,6 +36,8 @@ The service listens on port 8000 and stores SQLite data in the
   elapsed PR timing. PR count and timing include all production jobs with an
   observed PR, while completion rate counts only structured successful
   outcomes.
+- `/dashboard` provides the server-rendered
+  [operator dashboard](dashboard.md).
 - Application logs include delivery and job identifiers but not secrets or raw
   authorization headers.
 
@@ -83,5 +85,5 @@ Back up the SQLite volume before destructive infrastructure changes.
 ## Deployment constraints
 
 Run one worker-enabled replica. Multiple replicas need distributed leasing.
-Protect `/metrics` with trusted ingress when operational metrics are sensitive.
-Human review and merge remain mandatory.
+Protect `/dashboard` and `/metrics` with trusted ingress when operational data
+is sensitive. Human review and merge remain mandatory.
