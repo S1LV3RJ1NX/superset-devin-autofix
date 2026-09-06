@@ -26,14 +26,35 @@ Set these values in the local `.env` file:
 | `DEVIN_API_KEY` | A v3 service-user credential with the `cog_` prefix. |
 | `DEVIN_ORG_ID` | The target organization ID with the `org-` prefix. |
 
+### Generate local secrets
+
+Generate a different high-entropy value for each of these local secrets:
+
+- `GITHUB_WEBHOOK_SECRET`
+- `CONTROL_PLANE_API_KEY`
+
+Run this command once for each value, then paste the output into the matching
+line in `.env`:
+
+```bash
+openssl rand -hex 32
+```
+
+Do not generate `DEVIN_API_KEY` or `DEVIN_ORG_ID`. Create the former as a
+service-user credential in Devin and copy the latter from the Devin
+organization settings.
+
 The Devin service user needs organization-level `ManageOrgSessions` and
 `ViewOrgSessions` permissions. The first creates sessions; the second lets the
 worker reconcile uncertain requests and poll their status without creating a
 duplicate paid session.
 
 The defaults in `.env.example` target `S1LV3RJ1NX/superset` and the
-`devin-autofix` label. `GITHUB_TOKEN` is reserved for future GitHub
-status/comment updates and is not used by this version.
+`devin-autofix` label. Version 1 does not require or read a `GITHUB_TOKEN`:
+GitHub signs inbound webhooks with `GITHUB_WEBHOOK_SECRET`, and the control
+plane makes no outbound GitHub API calls. A future version that writes issue
+comments, commit statuses, or checks should introduce a minimally scoped token
+at that time.
 
 Never commit `.env`, put credentials in a screenshot, or include them in a
 Loom recording.
