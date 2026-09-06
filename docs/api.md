@@ -31,6 +31,14 @@ the separate simulated-job count. PR count and elapsed time include every
 production job with an observed PR, regardless of its eventual terminal status;
 completion rate is based only on structured `succeeded` outcomes.
 
+### `GET /dashboard`
+
+Returns a sanitized, server-rendered operator view of the same durable metrics
+and the latest non-simulated workflow. The page refreshes every 10 seconds,
+shows empty and database-error states, and exposes selected presentation fields
+instead of the raw `/jobs` response. It contains no browser JavaScript and does
+not call the bearer-protected `/jobs` endpoint.
+
 ### `POST /simulate`
 
 Available only with `APP_ENV=development`. With no body, it replays

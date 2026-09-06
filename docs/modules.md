@@ -19,6 +19,13 @@ database, enforces delivery-ID uniqueness and legal transitions, stores runtime
 session fields, atomically inserts queued webhook jobs, migrates compatible
 schema additions, lists worker candidates, and calculates metrics.
 
+## `app.dashboard`
+
+Renders the operator dashboard from repository metrics and the latest
+production job. It escapes dynamic text, permits only HTTP(S) links, presents
+selected completion details, and provides empty and retryable error pages
+without browser JavaScript or a frontend build system.
+
 ## `app.github`
 
 Owns GitHub webhook boundary logic. It signs and verifies raw bodies with
@@ -58,9 +65,9 @@ review.
 ## `app.main`
 
 Builds the FastAPI application and lifecycle. It wires settings, repository,
-service, client, and worker; exposes health, webhook, jobs, metrics, and
-simulation routes; enforces operator bearer authentication for job data and
-simulation; cancels active worker requests during shutdown; and closes
+service, client, and worker; exposes health, webhook, jobs, metrics, dashboard,
+and simulation routes; enforces operator bearer authentication for job data
+and simulation; cancels active worker requests during shutdown; and closes
 background resources.
 
 ## `app/fixtures`

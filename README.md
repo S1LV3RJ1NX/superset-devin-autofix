@@ -27,7 +27,7 @@ GitHub webhook
   -> SQLite delivery deduplication and job state machine
   -> background worker
   -> Devin v3 Organization Sessions API
-  -> JSON job and aggregate metrics endpoints
+  -> JSON operator endpoints and server-rendered dashboard
 ```
 
 The boundaries are intentionally small:
@@ -36,6 +36,7 @@ The boundaries are intentionally small:
 - `app/github.py`: webhook authentication and issues.labeled parsing.
 - `app/service.py`: idempotent webhook-to-job workflow.
 - `app/database.py`: SQLite schema, queries, and guarded transitions.
+- `app/dashboard.py`: sanitized, server-rendered operator presentation.
 - `app/devin.py`: typed client for the v3 Organization Sessions API.
 - `app/worker.py`: session creation, polling, timeout, and terminal-state mapping.
 
@@ -79,6 +80,13 @@ collection, and shutdown steps.
 Read [Control-plane API and Devin session contract](docs/api.md) for webhook,
 operator, metrics, simulation, and Devin v3 session details.
 
+Open `GET /dashboard` for a lightweight operator view of durable metrics and
+the latest production workflow. The server renders selected, escaped SQLite
+data directly, refreshes every 10 seconds, and provides empty and retryable
+database-error states. It uses no browser JavaScript or `/jobs` credentials;
+simulations remain visible only in their summary count and never replace the
+latest production workflow.
+
 ## Validation
 
 ```bash
@@ -107,6 +115,6 @@ test calls the real Devin API.
   Missing Devin credentials fail before reconciliation because no external
   request was attempted.
 - SQLite is local to one deployment and has no external backup automation.
-- `/metrics` and `/health` remain unauthenticated; use trusted ingress if
-  operational metrics should not be public.
+- `/dashboard`, `/metrics`, and `/health` remain unauthenticated; use trusted
+  ingress if operational data should not be public.
 - GitHub status comments and checks are not written in this version.
