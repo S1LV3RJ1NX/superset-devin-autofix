@@ -36,10 +36,8 @@ The service listens on port 8000 and stores SQLite data in the
   elapsed PR timing. PR count and timing include all production jobs with an
   observed PR, while completion rate counts only structured successful
   outcomes.
-- `/dashboard` presents those durable metrics and the latest production
-  workflow as sanitized server-rendered HTML. It refreshes every 10 seconds,
-  excludes simulations from the latest-workflow view, and does not call
-  `/jobs` from the browser.
+- `/dashboard` provides the server-rendered
+  [operator dashboard](dashboard.md).
 - Application logs include delivery and job identifiers but not secrets or raw
   authorization headers.
 

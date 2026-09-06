@@ -16,6 +16,7 @@ never merges or auto-merges pull requests.
 - [Application modules](docs/modules.md)
 - [Development with Python 3.13 and uv](docs/development.md)
 - [Testing strategy](docs/testing.md)
+- [Operator dashboard](docs/dashboard.md)
 - [Operations](docs/operations.md)
 - [Decision log](decisions.md)
 
@@ -80,12 +81,9 @@ collection, and shutdown steps.
 Read [Control-plane API and Devin session contract](docs/api.md) for webhook,
 operator, metrics, simulation, and Devin v3 session details.
 
-Open `GET /dashboard` for a lightweight operator view of durable metrics and
-the latest production workflow. The server renders selected, escaped SQLite
-data directly, refreshes every 10 seconds, and provides empty and retryable
-database-error states. It uses no browser JavaScript or `/jobs` credentials;
-simulations remain visible only in their summary count and never replace the
-latest production workflow.
+Open `GET /dashboard` for the lightweight operator view. See
+[Operator dashboard](docs/dashboard.md) for its data, behavior, and deployment
+boundary.
 
 ## Validation
 
