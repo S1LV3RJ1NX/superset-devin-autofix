@@ -328,6 +328,16 @@ class JobRepository:
     def metrics(self) -> dict[str, object]:
         """Calculate production job metrics, excluding simulations."""
         all_jobs = self.list_jobs()
+        return self._calculate_metrics(all_jobs)
+
+    def dashboard_snapshot(self) -> tuple[dict[str, object], Job | None]:
+        """Return metrics and the latest production job from one job snapshot."""
+        all_jobs = self.list_jobs()
+        latest_job = next((job for job in all_jobs if not job.simulated), None)
+        return self._calculate_metrics(all_jobs), latest_job
+
+    @staticmethod
+    def _calculate_metrics(all_jobs: list[Job]) -> dict[str, object]:
         jobs = [job for job in all_jobs if not job.simulated]
         terminal_counts = {
             status.value: sum(job.status is status for job in jobs) for status in TERMINAL_STATUSES

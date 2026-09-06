@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.database import JobRepository
-from app.models import JobStatus
+from app.models import Job, JobStatus
 
 
 def test_dashboard_renders_durable_metrics_and_latest_production_workflow(
@@ -102,15 +102,99 @@ def test_dashboard_renders_empty_state_from_an_empty_database(client: TestClient
     assert "Dashboard data is temporarily unavailable" not in response.text
 
 
+def test_dashboard_uses_one_immutable_job_snapshot(
+    client: TestClient,
+    repository: JobRepository,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository.create_or_get_queued(
+        delivery_id="snapshot-original",
+        issue_number=1,
+        issue_title="Original workflow",
+        issue_body="Body",
+        issue_url="https://github.com/S1LV3RJ1NX/superset/issues/1",
+        repository="S1LV3RJ1NX/superset",
+        simulated=False,
+    )
+    original_list_jobs = repository.list_jobs
+    calls = 0
+
+    def list_jobs_with_concurrent_insert(
+        *,
+        include_simulated: bool = True,
+    ) -> list[Job]:
+        nonlocal calls
+        calls += 1
+        jobs = original_list_jobs(include_simulated=include_simulated)
+        if calls == 1:
+            repository.create_or_get_queued(
+                delivery_id="snapshot-concurrent",
+                issue_number=2,
+                issue_title="Concurrent workflow",
+                issue_body="Body",
+                issue_url="https://github.com/S1LV3RJ1NX/superset/issues/2",
+                repository="S1LV3RJ1NX/superset",
+                simulated=False,
+            )
+        return jobs
+
+    monkeypatch.setattr(repository, "list_jobs", list_jobs_with_concurrent_insert)
+
+    response = client.get("/dashboard")
+
+    assert response.status_code == 200
+    assert calls == 1
+    assert "Original workflow" in response.text
+    assert "Concurrent workflow" not in response.text
+
+
+def test_dashboard_rejects_malformed_bracketed_urls(
+    client: TestClient,
+    repository: JobRepository,
+) -> None:
+    job, _ = repository.create_or_get_queued(
+        delivery_id="malformed-urls",
+        issue_number=3,
+        issue_title="Malformed links",
+        issue_body="Body",
+        issue_url="http://[",
+        repository="S1LV3RJ1NX/superset",
+        simulated=False,
+    )
+    repository.transition(
+        job.id,
+        JobStatus.SESSION_CREATED,
+        {"devin_id": "malformed-session", "devin_url": "http://["},
+    )
+    repository.transition(job.id, JobStatus.RUNNING)
+    repository.transition(
+        job.id,
+        JobStatus.NEEDS_HUMAN_INPUT,
+        {
+            "pr_url": "http://[",
+            "pr_created_at": job.received_at + timedelta(seconds=10),
+        },
+    )
+
+    response = client.get("/dashboard")
+
+    assert response.status_code == 200
+    assert "Malformed links" in response.text
+    assert "http://[" not in response.text
+    assert "Open pull request" not in response.text
+    assert "Human input required before work can continue" in response.text
+    assert "Not available" in response.text
+
+
 def test_dashboard_returns_retryable_sanitized_error_state(
     client: TestClient,
     repository: JobRepository,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fail_metrics() -> dict[str, object]:
+    def fail_snapshot() -> tuple[dict[str, object], Job | None]:
         raise RuntimeError("sensitive database details")
 
-    monkeypatch.setattr(repository, "metrics", fail_metrics)
+    monkeypatch.setattr(repository, "dashboard_snapshot", fail_snapshot)
 
     response = client.get("/dashboard")
 
@@ -119,3 +203,19 @@ def test_dashboard_returns_retryable_sanitized_error_state(
     assert "Dashboard data is temporarily unavailable" in response.text
     assert "Automatic refresh will retry" in response.text
     assert "sensitive database details" not in response.text
+
+
+def test_dashboard_returns_error_state_when_rendering_fails(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_render(*args: object, **kwargs: object) -> str:
+        raise RuntimeError("sensitive rendering details")
+
+    monkeypatch.setattr("app.main.render_dashboard", fail_render)
+
+    response = client.get("/dashboard")
+
+    assert response.status_code == 503
+    assert "Dashboard data is temporarily unavailable" in response.text
+    assert "sensitive rendering details" not in response.text

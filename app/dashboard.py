@@ -355,7 +355,7 @@ def _workflow(job: Job | None) -> str:
           <span class="status {job.status.value}">{_STATUS_LABELS[job.status]}</span>
         </div>
         <div class="callout">
-          <p>{escape(_workflow_message(job))}</p>
+          <p>{escape(_workflow_message(job, has_pr=pr_url is not None))}</p>
           {pr_action}
         </div>
         <div class="timeline">
@@ -368,17 +368,15 @@ def _workflow(job: Job | None) -> str:
     """
 
 
-def _workflow_message(job: Job) -> str:
+def _workflow_message(job: Job, *, has_pr: bool) -> str:
     if job.status is JobStatus.NEEDS_HUMAN_INPUT:
         return (
             "PR opened — human review required"
-            if job.pr_url
+            if has_pr
             else "Human input required before work can continue"
         )
     if job.status is JobStatus.SUCCEEDED:
-        return (
-            "Remediation completed — PR ready for review" if job.pr_url else "Remediation completed"
-        )
+        return "Remediation completed — PR ready for review" if has_pr else "Remediation completed"
     if job.status is JobStatus.FAILED:
         return "Workflow failed — operator attention required"
     if job.status is JobStatus.TIMED_OUT:
@@ -505,7 +503,10 @@ def _format_datetime(value: datetime | None) -> str:
 def _safe_url(value: str | None) -> str | None:
     if value is None:
         return None
-    parsed = urlparse(value)
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        return None
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return None
     return escape(value, quote=True)

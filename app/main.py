@@ -159,8 +159,8 @@ def create_app(
             "X-Content-Type-Options": "nosniff",
         }
         try:
-            dashboard_metrics = resolved_repository.metrics()
-            jobs = resolved_repository.list_jobs(include_simulated=False)
+            dashboard_metrics, latest_job = resolved_repository.dashboard_snapshot()
+            dashboard_content = render_dashboard(dashboard_metrics, latest_job)
         except Exception:
             logger.exception("failed to load operator dashboard data")
             return HTMLResponse(
@@ -168,10 +168,7 @@ def create_app(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 headers=headers,
             )
-        return HTMLResponse(
-            render_dashboard(dashboard_metrics, jobs[0] if jobs else None),
-            headers=headers,
-        )
+        return HTMLResponse(dashboard_content, headers=headers)
 
     @app.post("/simulate")
     async def simulate(
